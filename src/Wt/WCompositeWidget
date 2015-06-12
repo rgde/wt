@@ -121,7 +121,9 @@ public:
   virtual WWebWidget *webWidget();
   virtual void setToolTip(const WString& text,
 			  TextFormat textFormat = PlainText);
-  virtual const WString& toolTip() const;
+  virtual WString toolTip() const;
+  virtual void setDeferredToolTip(bool enable,
+                                  TextFormat textFormat = PlainText);
   virtual void refresh();
   virtual void setAttributeValue(const std::string& name,
 				 const WT_USTRING& value);
@@ -133,6 +135,11 @@ public:
 				    const std::string& args);
   virtual void load();
   virtual bool loaded() const;
+  virtual void setCanReceiveFocus(bool enabled);
+  virtual bool canReceiveFocus() const;
+  virtual void setFocus(bool focus);
+  virtual bool setFirstFocus();
+  virtual bool hasFocus() const;
   virtual void setTabIndex(int index);
   virtual int tabIndex() const;
   virtual int zIndex() const;
@@ -141,8 +148,11 @@ public:
   virtual WWidget *findById(const std::string& name);
   virtual void setSelectable(bool selectable);  
   virtual void doJavaScript(const std::string& js);
-
   virtual void propagateSetEnabled(bool enabled);
+
+#ifndef WT_TARGET_JAVA
+  using WWidget::setFocus;
+#endif
 
 protected:
   virtual void addChild(WWidget *child);

@@ -6,7 +6,7 @@
 #include "Wt/WAbstractToggleButton"
 #include "Wt/WApplication"
 #include "Wt/WEnvironment"
-#include "Wt/WLabel"
+#include "Wt/WTheme"
 
 #include "DomElement.h"
 #include "WebUtils.h"
@@ -18,22 +18,21 @@ const char *WAbstractToggleButton::UNCHECKED_SIGNAL = "M_unchecked";
 
 WAbstractToggleButton::WAbstractToggleButton(WContainerWidget *parent)
   : WFormWidget(parent),
-    state_(Unchecked),
-    stateChanged_(false),
-    textChanged_(false)
+    state_(Unchecked)
 {
+  flags_.set(BIT_NAKED);
+  flags_.set(BIT_WORD_WRAP);
   text_.format = PlainText;
 }
 
 WAbstractToggleButton::WAbstractToggleButton(const WString& text,
 					     WContainerWidget *parent)
   : WFormWidget(parent),
-    state_(Unchecked),
-    stateChanged_(false),
-    textChanged_(false)
+    state_(Unchecked)
 { 
   text_.format = PlainText;
   text_.text = text;
+  flags_.set(BIT_WORD_WRAP);
 }
 
 WAbstractToggleButton::~WAbstractToggleButton()
@@ -71,7 +70,7 @@ void WAbstractToggleButton::setText(const WString& text)
     return;
 
   text_.setText(text);
-  textChanged_ = true;
+  flags_.set(BIT_TEXT_CHANGED);
   repaint(RepaintSizeAffected);
 }
 
@@ -86,7 +85,7 @@ void WAbstractToggleButton::setCheckState(CheckState state)
     return;
 
   state_ = state;
-  stateChanged_ = true;
+  flags_.set(BIT_STATE_CHANGED);
   repaint();
 }
 
@@ -119,20 +118,31 @@ void WAbstractToggleButton::updateDom(DomElement& element, bool all)
 
   DomElement *input = 0;
   DomElement *span = 0;
+  DomElement *label = 0;
 
-  if (element.type() == DomElement_LABEL) {
+  // Already apply theme here because it may determine its organization
+  if (all)
+    app->theme()->apply(this, element, 1);
+
+  if (element.type() == DomElement_INPUT)
+    input = &element;
+  else {
     if (all) {
       input = DomElement::createNew(DomElement_INPUT);
       input->setName("in" + id());
 
       span = DomElement::createNew(DomElement_SPAN);
-      span->setName("l" + id());
+      span->setName("t" + id());
+ 
+      if (element.type() != DomElement_LABEL) {
+	label = DomElement::createNew(DomElement_LABEL);
+	label->setName("l" + id());
+      }
     } else {
       input = DomElement::getForUpdate("in" + id(), DomElement_INPUT);
-      span = DomElement::getForUpdate("l" + id(), DomElement_SPAN);
+      span = DomElement::getForUpdate("t" + id(), DomElement_SPAN);
     }
-  } else
-    input = &element;
+  }
 
   if (all)
     updateInput(*input, all);
@@ -162,13 +172,15 @@ void WAbstractToggleButton::updateDom(DomElement& element, bool all)
 
   /*
    * Copy all properties to the exterior element, as they relate to style,
-   * etc... We ignore here attributes, see WWebWidget: there seems not to
-   * be attributes that sensibly need to be moved.
+   * etc... We ignore here attributes (except for tooltip),
+   * see WWebWidget: other attributes need not be moved.
    *
    * But -- bug #423, disabled and readonly are properties that should be
    * kept on the interior element.
    */
   if (&element != input) {
+    if (element.properties().find(PropertyClass) != element.properties().end())
+      input->addPropertyWord(PropertyClass, element.getProperty(PropertyClass));
     element.setProperties(input->properties());
     input->clearProperties();
 
@@ -183,9 +195,13 @@ void WAbstractToggleButton::updateDom(DomElement& element, bool all)
       input->setProperty(Wt::PropertyReadOnly, v);
       element.removeProperty(Wt::PropertyReadOnly);
     }
+
+    v = input->getAttribute("title");
+    if (!v.empty())
+      element.setAttribute("title", v);
   }
 
-  if (stateChanged_ || all) {
+  if (flags_.test(BIT_STATE_CHANGED) || all) {
     input->setProperty(Wt::PropertyChecked,
 		       state_ == Unchecked ? "false" : "true");
 
@@ -196,7 +212,7 @@ void WAbstractToggleButton::updateDom(DomElement& element, bool all)
       input->setProperty(Wt::PropertyStyleOpacity,
 			 state_ == PartiallyChecked ? "0.5" : "");
 
-    stateChanged_ = false;
+	flags_.reset(BIT_STATE_CHANGED);
   }
 
   std::vector<DomElement::EventAction> changeActions;
@@ -227,7 +243,7 @@ void WAbstractToggleButton::updateDom(DomElement& element, bool all)
     }
 
     if (change) {
-      if (change->needsUpdate(all))
+      if (change->isConnected())
 	changeActions.push_back
 	  (DomElement::EventAction(std::string(),
 				   change->javaScript(),
@@ -261,21 +277,31 @@ void WAbstractToggleButton::updateDom(DomElement& element, bool all)
   }
 
   if (span) {
-    if (all || textChanged_) {
+    if (all || flags_.test(BIT_TEXT_CHANGED)) {
       span->setProperty(PropertyInnerHTML, text_.formattedText());
-      textChanged_ = false;
+	  if(all || flags_.test(BIT_WORD_WRAP_CHANGED)) {
+		span->setProperty(PropertyStyleWhiteSpace, flags_.test(BIT_WORD_WRAP) ? "normal" : "nowrap");
+		flags_.reset(BIT_WORD_WRAP_CHANGED);
+	  }
+	  flags_.reset(BIT_TEXT_CHANGED);
     }
   }
 
   if (&element != input) {
-    element.addChild(input);
-    element.addChild(span);
+    if (label) {
+      label->addChild(input);
+      label->addChild(span);
+      element.addChild(label);
+    } else {
+      element.addChild(input);
+      element.addChild(span);
+    }
   }
 }
 
 DomElementType WAbstractToggleButton::domElementType() const
 {
-  if (!text_.text.empty())
+  if (!flags_.test(BIT_NAKED))
     return DomElement_LABEL;
   else
     return DomElement_INPUT;
@@ -283,7 +309,7 @@ DomElementType WAbstractToggleButton::domElementType() const
 
 void WAbstractToggleButton::propagateRenderOk(bool deep)
 {
-  stateChanged_ = false;
+  flags_.reset(BIT_STATE_CHANGED);
 
   EventSignal<> *check = voidEventSignal(CHECKED_SIGNAL, false);
   if (check)
@@ -298,7 +324,7 @@ void WAbstractToggleButton::propagateRenderOk(bool deep)
 
 void WAbstractToggleButton::setFormData(const FormData& formData)
 {
-  if (stateChanged_ || isReadOnly())
+  if (flags_.test(BIT_STATE_CHANGED) || isReadOnly())
     return;
 
   if (!Utils::isEmpty(formData.values))
@@ -342,6 +368,20 @@ WT_USTRING WAbstractToggleButton::valueText() const
   }
 }
 
+void WAbstractToggleButton::setWordWrap(bool wordWrap)
+{
+  if (flags_.test(BIT_WORD_WRAP) != wordWrap) {
+    flags_.set(BIT_WORD_WRAP, wordWrap);
+    flags_.set(BIT_WORD_WRAP_CHANGED);
+    repaint(RepaintSizeAffected);
+  }
+}
+
+bool WAbstractToggleButton::wordWrap() const
+{
+  return flags_.test(BIT_WORD_WRAP);
+}
+
 void WAbstractToggleButton::setValueText(const WT_USTRING& text)
 {
   if (text == "yes")
@@ -355,7 +395,7 @@ void WAbstractToggleButton::setValueText(const WT_USTRING& text)
 void WAbstractToggleButton::refresh()
 {
   if (text_.text.refresh()) {
-    textChanged_ = true;
+	flags_.set(BIT_TEXT_CHANGED);
     repaint(RepaintSizeAffected);
   }
 

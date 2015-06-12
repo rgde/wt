@@ -16,6 +16,7 @@ WLocale::WLocale()
   : decimalPoint_("."),
     groupSeparator_(""),
     dateFormat_("yyyy-MM-dd"),
+    timeFormat_("HH:mm:ss"),
     dateTimeFormat_("yyyy-MM-dd HH:mm:ss")
 { }
 
@@ -24,6 +25,7 @@ WLocale::WLocale(const WLocale& other)
     decimalPoint_(other.decimalPoint()),
     groupSeparator_(other.groupSeparator()),
     dateFormat_(other.dateFormat()),
+    timeFormat_(other.timeFormat()),
     dateTimeFormat_(other.dateTimeFormat()),
     time_zone_(other.time_zone_)
 { }
@@ -33,6 +35,7 @@ WLocale::WLocale(const std::string& name)
     decimalPoint_(systemLocale.decimalPoint()),
     groupSeparator_(systemLocale.groupSeparator()),
     dateFormat_(systemLocale.dateFormat()),
+    timeFormat_(systemLocale.timeFormat()),
     dateTimeFormat_(systemLocale.dateTimeFormat()),
     time_zone_(systemLocale.time_zone_)
 { }
@@ -42,6 +45,7 @@ WLocale::WLocale(const char *name)
     decimalPoint_(systemLocale.decimalPoint()),
     groupSeparator_(systemLocale.groupSeparator()),
     dateFormat_(systemLocale.dateFormat()),
+    timeFormat_(systemLocale.timeFormat()),
     dateTimeFormat_(systemLocale.dateTimeFormat()),
     time_zone_(systemLocale.time_zone_)
 { }
@@ -59,6 +63,11 @@ void WLocale::setGroupSeparator(WT_UCHAR c)
 void WLocale::setDateFormat(const WT_USTRING& format)
 {
   dateFormat_ = format;
+}
+
+void WLocale::setTimeFormat(const WT_USTRING &format)
+{
+  timeFormat_ = format;
 }
 
 void WLocale::setTimeZone(const std::string& posixTimeZone)
@@ -143,13 +152,26 @@ WT_USTRING WLocale::integerToString(const std::string& v) const
   if (groupSeparator_.empty())
     return WT_USTRING::fromUTF8(v);
   else
-    return WT_USTRING::fromUTF8(addGrouping(v, 0));
+    return WT_USTRING::fromUTF8(addGrouping(v, v.length()));
 }
 
 WT_USTRING WLocale::toString(double value) const
 {
   std::string v = boost::lexical_cast<std::string>(value);
+  return doubleToString(v);
+}
 
+WT_USTRING WLocale::toFixedString(double value, int precision) const
+{
+  std::stringstream ss;
+  ss.precision(precision);
+  ss << std::fixed << ((precision > 0) ? std::showpoint : std::noshowpoint) << value;
+
+  return doubleToString(ss.str());
+}
+
+WT_USTRING WLocale::doubleToString(std::string v) const
+{
   if (isDefaultNumberLocale())
     return WT_USTRING::fromUTF8(v);
 

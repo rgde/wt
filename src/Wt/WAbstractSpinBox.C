@@ -33,9 +33,14 @@ public:
     else
       return Result(Invalid);
   }
-
+ 
   virtual std::string javaScriptValidate() const {
-    return "new function() { this.validate = function(t) { return jQuery.data(" + spinBox_->jsRef() + ", 'obj').validate(t); }; }";
+    return 
+      "new function() { "
+      """this.validate = function(t) {"
+      ""  "return jQuery.data(" + spinBox_->jsRef() + ", 'obj').validate(t);"
+      """};"
+      "}";
   }
 
 private:
@@ -58,6 +63,10 @@ void WAbstractSpinBox::setNativeControl(bool nativeControl)
 bool WAbstractSpinBox::nativeControl() const
 {
   if (preferNative_) {
+    if (!WLineEdit::inputMask().empty()) {
+      return false;
+    }
+
     const WEnvironment& env = WApplication::instance()->environment();
     if ((env.agentIsChrome() && env.agent() >= WEnvironment::Chrome5)
 	|| (env.agentIsSafari() && env.agent() >= WEnvironment::Safari4)
@@ -73,6 +82,8 @@ void WAbstractSpinBox::setPrefix(const WString& prefix)
   if (prefix_ != prefix) {
     prefix_ = prefix;
     setText(textFromValue());
+    changed_ = true;
+    repaint();
   }
 }
 
@@ -81,6 +92,8 @@ void WAbstractSpinBox::setSuffix(const WString& suffix)
   if (suffix_ != suffix) {
     suffix_ = suffix;
     setText(textFromValue());
+    changed_ = true;
+    repaint();
   }
 }
 
@@ -120,7 +133,9 @@ void WAbstractSpinBox::defineJavaScript()
     + boost::lexical_cast<std::string>(decimals()) + ","
     + prefix().jsStringLiteral() + ","
     + suffix().jsStringLiteral() + ","
-    + jsMinMaxStep() + ");";
+    + jsMinMaxStep() + ","
+    + jsStringLiteral(WLocale::currentLocale().decimalPoint()) + ","
+    + jsStringLiteral(WLocale::currentLocale().groupSeparator()) + ");";
 
   setJavaScriptMember(" WSpinBox", jsObj);
 }
@@ -145,8 +160,11 @@ void WAbstractSpinBox::updateDom(DomElement& element, bool all)
     if (!all) {
       if (!nativeControl())
 	doJavaScript("jQuery.data(" + jsRef() + ", 'obj')"
-		     ".update(" + jsMinMaxStep() + ","
-		     + boost::lexical_cast<std::string>(decimals()) + ");");
+		     ".configure("
+		     + boost::lexical_cast<std::string>(decimals()) + ","
+		     + prefix().jsStringLiteral() + ","
+		     + suffix().jsStringLiteral() + ","
+		     + jsMinMaxStep()+ ");");
       else
 	setValidator(createValidator());
     }
@@ -187,13 +205,25 @@ void WAbstractSpinBox::setup()
     connectJavaScript(keyWentDown(), "keyDown");
     connectJavaScript(keyWentUp(), "keyUp");
 
-    setValidator(new SpinBoxValidator(this));
+    if (!prefix_.empty() || !suffix_.empty())
+      setValidator(new SpinBoxValidator(this));
   }
 }
 
 WValidator::State WAbstractSpinBox::validate()
 {
   return WLineEdit::validate();
+}
+
+void WAbstractSpinBox::refresh()
+{
+  doJavaScript
+    ("jQuery.data(" + jsRef() + ", 'obj')"
+     ".setLocale(" 
+     + jsStringLiteral(WLocale::currentLocale().decimalPoint()) + ","
+     + jsStringLiteral(WLocale::currentLocale().groupSeparator()) + ");");
+
+  WLineEdit::refresh();
 }
 
 int WAbstractSpinBox::boxPadding(Orientation orientation) const

@@ -56,7 +56,7 @@ this.condCall = function(o, f, a) {
 this.buttons = 0;
 
 // button last released (for reporting in IE's click event)
-var lastButtonUp = 0;
+var lastButtonUp = 0, mouseDragging = false;
 
 // returns the button associated with the event (0 if none)
 this.button = function(e)
@@ -115,7 +115,18 @@ this.mouseDown = function(e) {
 
 this.mouseUp = function(e) {
   lastButtonUp = WT.button(e);
-  WT.buttons &= ~lastButtonUp;
+  setTimeout(function() {
+    mouseDragging = false;
+    WT.buttons &= ~lastButtonUp;
+  }, 5);
+};
+
+this.dragged = function(e) {
+  return mouseDragging;
+};
+
+this.drag = function(e) {
+  mouseDragging = true;
 };
 
 /**
@@ -255,10 +266,16 @@ this.initAjaxComm = function(url, handler) {
 
 	  clearTimeout(timer);
 
-	  if (good)
+	  if (good) {
+	    handled = true;
 	    handler(0, request.responseText, userData);
-	  else
-	    handler(1, null, userData);
+		if(monitor)
+		  monitor.onStatusChange('connectionStatus', 1);
+	  } else {
+	    handler(1, null, userData); 
+		if(monitor)
+		  monitor.onStatusChange('connectionStatus', 0);
+	  }
 
 	  if (request) {
 	    request.onreadystatechange = new Function;
@@ -329,6 +346,12 @@ this.initAjaxComm = function(url, handler) {
       this.sendUpdate = function(data, userData, id, timeout) {
 	return new Request(data, userData, id, timeout);
       };
+
+	  var monitor = null;
+
+	  this.setConnectionMonitor = function(aMonitor) {
+		monitor = aMonitor;
+	  }
 
       this.setUrl = function(url) {
 	sessionUrl = url;
@@ -419,8 +442,10 @@ this.setHtml = function (el, html, add) {
   if (WT.isIE || (_$_INNER_HTML_$_ && !add)) {
     if (add)
       el.innerHTML += html;
-    else
+    else {
+      WT.saveReparented(el);
       el.innerHTML = html;
+    }
   } else {
     var d, b;
     d = new DOMParser();
@@ -429,8 +454,10 @@ this.setHtml = function (el, html, add) {
     if (d.nodeType != 1) // element
       d = d.nextSibling;
 
-    if (!add)
+    if (!add) {
+      WT.saveReparented(el);
       el.innerHTML = '';
+    }
 
     for (var i = 0, il = d.childNodes.length; i < il;)
       el.appendChild(myImportNode(d.childNodes[i++], true));
@@ -592,6 +619,9 @@ this.ajaxInternalPaths = function(basePath) {
 	if (href.charAt(0) != '/')
 	  href = '/' + href;
 	internalPath = href.substr(basePath.length);
+	if (internalPath.substr(0, 2) == "_=" &&
+	    basePath.charAt(basePath.length - 1) == '?')
+	  internalPath = '?' + internalPath;  /* eaten one too much */
       }
 
       if (internalPath.length == 0 || internalPath.charAt(0) != '/')
@@ -642,12 +672,6 @@ this.cancelEvent = function(e, cancelType) {
       e.stopPropagation();
     else
       e.cancelBubble=true;
-
-    try {
-      if (document.activeElement && document.activeElement.blur)
-	if (WT.hasTag(document.activeElement, "TEXTAREA"))
-	  document.activeElement.blur();
-    } catch(e) { }
   }
 };
 
@@ -741,13 +765,35 @@ this.widgetCoordinates = function(obj, e) {
 // Get coordinates of (mouse) event relative to page origin.
 this.pageCoordinates = function(e) {
   if (!e) e = window.event;
+
   var posX = 0, posY = 0;
-  if (typeof e.pageX === 'number') {
-    posX = e.pageX; posY = e.pageY;
+
+  var target = e.target || e.srcElement;
+
+  // if this is an iframe, offset against the frame's position
+  if (target && (target.ownerDocument != document))
+    for (var i=0; i < window.frames.length; i++) {
+      if (target.ownerDocument == window.frames[i].document) {
+        try{
+          var rect = window.frames[i].frameElement.getBoundingClientRect();
+          posX = rect.left;
+          posY = rect.top;
+        }catch (e) {
+        }
+      }
+    }
+  
+  if (e.touches && e.touches[0]) {
+    return WT.pageCoordinates(e.touches[0]);
+  } else if (!WT.isIE && e.changedTouches && e.changedTouches[0]) {
+    posX += e.changedTouches[0].pageX;
+    posY += e.changedTouches[0].pageY;
+  } else if (typeof e.pageX === 'number') {
+    posX += e.pageX; posY = e.pageY;
   } else if (typeof e.clientX === 'number') {
-    posX = e.clientX + document.body.scrollLeft
+    posX += e.clientX + document.body.scrollLeft
       + document.documentElement.scrollLeft;
-    posY = e.clientY + document.body.scrollTop
+    posY += e.clientY + document.body.scrollTop
       + document.documentElement.scrollTop;
   }
 
@@ -775,7 +821,7 @@ this.wheelDelta = function(e) {
 };
 
 this.scrollIntoView = function(id) {
-  setTimeout(function() { 
+  setTimeout(function() {
       var hashI = id.indexOf('#');
       if (hashI != -1)
 	id = id.substr(hashI + 1);
@@ -901,6 +947,17 @@ this.isKeyPress = function(e) {
 
 var repeatT = null, repeatI = null;
 
+this.isDblClick = function(o, e) {
+  if (o.wtClickTimeout &&
+      Math.abs(o.wtE1.clientX - e.clientX) < 2 &&
+      Math.abs(o.wtE1.clientY - e.clientY) < 2) {
+      clearTimeout(o.wtClickTimeout);
+      o.wtClickTimeout = null; o.wtE1 = null;
+      return true;
+  } else
+      return false;
+};
+
 this.eventRepeat = function(fun, startDelay, repeatInterval) {
   WT.stopRepeat();
 
@@ -1012,7 +1069,7 @@ this.vendorPrefix = function(attr) {
 };
 
 this.boxSizing = function(w) {
-  return (w.style[WT.styleAttribute('box-sizing')]) === 'border-box';
+  return (WT.css(w, WT.styleAttribute('box-sizing'))) === 'border-box';
 };
 
 // Return if an element (or one of its ancestors) is hidden
@@ -1156,16 +1213,10 @@ function mouseUp(e) {
 
 var captureInitialized = false;
 
-function initCapture() {
-  if (captureInitialized)
-    return;
-
-  captureInitialized = true;
-
-  var db = document.body;
-  if (db.addEventListener) {
-    db.addEventListener('mousemove', mouseMove, true);
-    db.addEventListener('mouseup', mouseUp, true);
+function attachMouseHandlers(el) {
+  if (el.addEventListener) {
+    el.addEventListener('mousemove', mouseMove, true);
+    el.addEventListener('mouseup', mouseUp, true);
 
     if (WT.isGecko) {
       window.addEventListener('mouseout', function(e) {
@@ -1175,9 +1226,19 @@ function initCapture() {
 			      }, true);
     }
   } else {
-    db.attachEvent('onmousemove', mouseMove);
-    db.attachEvent('onmouseup', mouseUp);
+    el.attachEvent('onmousemove', mouseMove);
+    el.attachEvent('onmouseup', mouseUp);
   }
+}
+
+function initCapture() {
+  if (captureInitialized)
+    return;
+
+  captureInitialized = true;
+
+  var db = document.body;
+  attachMouseHandlers(db);
 }
 
 this.capture = function(obj) {
@@ -1185,6 +1246,16 @@ this.capture = function(obj) {
 
   if (captureElement && obj)
     return;
+
+  // attach to possible iframes
+  for (var i=0; i < window.frames.length; i++)
+    try{
+      if (! window.frames[i].document.body.hasMouseHandlers) {
+        attachMouseHandlers(window.frames[i].document.body);
+        window.frames[i].document.body.hasMouseHandlers = true;
+      }
+    }catch (e) {
+    }
 
   captureElement = obj;
 
@@ -1353,6 +1424,42 @@ this.addStyleSheet = function(uri, media) {
   }
 };
 
+this.removeStyleSheet = function(uri) {
+  if ($('link[rel=stylesheet][href~="' + uri + '"]'))
+    $('link[rel=stylesheet][href~="' + uri + '"]').remove();
+  var sheets = document.styleSheets;
+  for (var i=0; i<sheets.length; ++i) {
+    var sheet = sheets[i];
+    j = 0;
+    if (sheet) {
+      var rule = null;
+      do {
+        try {
+          if (sheet.cssRules)
+            rule = sheet.cssRules[j]; // firefox
+          else
+            rule = sheet.rules[j];    // IE
+
+          if (rule && rule.cssText ===
+              "@import url(\"" + uri +  "\");") {
+            if (sheet.cssRules)
+              sheet.deleteRule(j);// firfox
+            else
+              sheet.removeRule(j);//IE
+            break; // only remove 1 rule !!!!
+          }
+        } catch (err) {
+          /*
+        * firefox security error 1000 when access a stylesheet.cssRules
+        * hosted from another domain
+        */
+        }
+        ++j;
+      } while(rule)
+    }
+  }
+};
+
 this.windowSize = function() {
   var x, y;
 
@@ -1434,14 +1541,15 @@ this.fitToWindow = function(e, x, y, rightx, bottomy) {
     if (op == document.body)
       scrollY = (op.clientHeight - windowSize.y);
     bottomy = bottomy - offsetParent.y + scrollY;
-    y = op.clientHeight - (bottomy + WT.px(e, 'marginBottom'));
+    y = op.clientHeight - 
+	  (bottomy + WT.px(e, 'marginBottom') + WT.px(e, 'borderBottomWidth'));
     vside = 1;
   } else {
     var scrollY = op.scrollTop;
     if (op == document.body)
       scrollY = 0;
     y = y - offsetParent.y + scrollY;
-    y = y - WT.px(e, 'marginTop');
+    y = y - WT.px(e, 'marginTop') + WT.px(e, 'borderTopWidth');
     vside = 0;
   }
 
@@ -1511,7 +1619,12 @@ this.positionAtWidget = function(id, atId, orientation, delta) {
 	break;
       }
 
+      // e.g. a layout widget has clientHeight=0 since it's relative
+      // with only absolutely positioned children. We are a bit more liberal
+      // here to catch other simular situations, and 100px seems like space
+      // needed anyway?
       if (WT.css(p, 'display') != 'inline' &&
+	  p.clientHeight > 100 &&
 	  (p.scrollHeight > p.clientHeight ||
 	   p.scrollWidth > p.clientWidth)) {
 	break;
@@ -1620,8 +1733,14 @@ if (html5History) {
 	  newState = stateMap[w.location.pathname + w.location.search];
 
 	if (newState == null) {
-	  saveState(currentState);
-	  return;
+	  var endw = w.location.pathname.lastIndexOf(currentState);
+	  if (endw != -1 &&
+	      endw == w.location.pathname.length - currentState.length) {
+	    saveState(currentState);
+	    return;
+	  } else {
+	    newState = w.location.pathname.substr(baseUrl.length);
+	  }
 	}
 
 	if (newState != currentState) {
@@ -1970,7 +2089,7 @@ _$_$endif_$_();
 
 if (window._$_APP_CLASS_$_ && window._$_APP_CLASS_$_._p_) {
   try {
-    window._$_APP_CLASS_$_._p_.quit();
+    window._$_APP_CLASS_$_._p_.quit(null);
   } catch (e) {
   }
 }
@@ -2039,13 +2158,16 @@ function initDragDrop() {
 }
 
 function dragStart(obj, e) {
+  if (e.ctrlKey || WT.button(e) > 1) //Ignore drags with rigth click.
+    return true;
   var t = WT.target(e);
   if (t) {
     /*
      * Ignore drags that start on a scrollbar (#1231)
      */
-    if (t.offsetWidth > t.clientWidth
-	|| t.offsetHeight > t.clientHeight) {
+    if (WT.css(t, 'display') !== 'inline' &&
+	(t.offsetWidth > t.clientWidth ||
+	 t.offsetHeight > t.clientHeight)) {
       var wc = WT.widgetPageCoordinates(t);
       var pc = WT.pageCoordinates(e);
       var x = pc.x - wc.x;
@@ -2080,7 +2202,7 @@ function dragStart(obj, e) {
 
   ds.object.parentNode.removeChild(ds.object);
   ds.object.style.position = 'absolute';
-  ds.object.className = '';
+  ds.object.className = ds.objectPrevStyle.className + '';
   ds.object.style.zIndex = '1000';
   document.body.appendChild(ds.object);
 
@@ -2167,9 +2289,9 @@ function dragDrag(e) {
       if (ds.dropTarget.handleDragDrop)
 	ds.dropTarget.handleDragDrop('drag', ds.object, e, '', mimeType);
       else
-	ds.object.className = 'Wt-valid-drop';
+	ds.object.className = ds.objectPrevStyle.className + ' Wt-valid-drop';
     } else
-      ds.object.className = '';
+      ds.object.className = ds.objectPrevStyle.className + '';
 
     return false;
   }
@@ -2434,8 +2556,8 @@ function encodePendingEvents() {
 }
 
 var sessionUrl,
-  quited = false,
-  norestart = false,
+  quitted = false,
+  quittedStr = _$_QUITTED_STR_$_,
   loaded = false,
   responsePending = null,
   pollTimer = null,
@@ -2444,8 +2566,9 @@ var sessionUrl,
   serverPush = false,
   updateTimeout = null;
 
-function quit() {
-  quited = true;
+function quit(quittedMessage) {
+  quitted = true;
+  quittedStr = quittedMessage;
   if (keepAliveTimer) {
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
@@ -2496,6 +2619,7 @@ function load(fullapp) {
     document.addEventListener("blur", trackActiveElementLost, true);
   }
 
+  // this could be cancelled leading to havoc?
   $(document).mousedown(WT.mouseDown).mouseup(WT.mouseUp);
 
   WT.history._initialize();
@@ -2505,7 +2629,7 @@ function load(fullapp) {
   if (fullapp)
     window._$_APP_CLASS_$_LoadWidgetTree();
 
-  if (!quited) {
+  if (!quitted) {
     if (!keepAliveTimer) {
       keepAliveTimer = setInterval(doKeepAlive, _$_KEEP_ALIVE_$_000);
     }
@@ -2544,6 +2668,8 @@ var websocket = {
   reconnectTries: 0
 };
 
+var connectionMonitor = null;
+
 function setServerPush(how) {
   serverPush = how;
 }
@@ -2566,7 +2692,7 @@ function doJavaScript(js) {
 }
 
 function handleResponse(status, msg, timer) {
-  if (quited)
+  if (quitted)
     return;
 
   if (waitingForJavaScript) {
@@ -2582,14 +2708,16 @@ _$_$endif_$_();
       doJavaScript(msg);
 _$_$if_CATCH_ERROR_$_();
     } catch (e) {
-      var stack = null;
-
-_$_$if_SHOW_STACK_$_();
-      stack = e.stack || e.stacktrace;
-_$_$endif_$_();
-      alert("Wt internal error: " + e + ", code: " +  e.code
-	    + ", description: " + e.description
-	    + (stack ? (", stack:\n" + stack) : ""));
+      var stack = e.stack || e.stacktrace;
+      var description = e.description || e.message;
+      var err = { "exception_code": e.code,
+		  "exception_description": description,
+		  "exception_js": msg };
+      err.stack = stack;
+      sendError(err,
+		"Wt internal error; code: " +  e.code
+		+ ", description: " + description);
+      throw e;
     }
 _$_$endif_$_();
 
@@ -2613,7 +2741,7 @@ _$_$endif_$_();
   else
     commErrors = 0;
 
-  if (quited)
+  if (quitted)
     return;
 
   if (serverPush || pendingEvents.length > 0) {
@@ -2644,11 +2772,26 @@ function doPollTimeout() {
   responsePending = null;
   pollTimer = null;
 
-  if (!quited)
+  if (!quitted)
     sendUpdate();
 }
 
 var updating = false;
+ function setConnectionMonitor(aMonitor)
+ {
+   comm.setConnectionMonitor(aMonitor);
+   connectionMonitor = aMonitor;
+   connectionMonitor.status = {};
+   connectionMonitor.status.connectionStatus = 0;
+   connectionMonitor.status.websocket = false;
+   connectionMonitor.onStatusChange = function(type, newS) {
+	var old = monitor.status[type];
+	if(old == newS) return;
+	monitor.status[type] = newS;
+	monitor.onChange(type, old, newS);
+   }
+ }
+
 
 function update(el, signalName, e, feedback) {
   /*
@@ -2687,9 +2830,35 @@ _$_$endif_$_();
 
 var updateTimeoutStart;
 
+function schedulePing() {
+  if (websocket.keepAlive)
+    clearInterval(websocket.keepAlive);
+
+  websocket.keepAlive = setInterval
+    (function() {
+      var ws = websocket.socket;
+      if (ws.readyState == 1)
+	ws.send('&signal=ping');
+      else {
+	clearInterval(websocket.keepAlive);
+	websocket.keepAlive = null;
+      }
+    }, _$_SERVER_PUSH_TIMEOUT_$_);
+}
+
 function scheduleUpdate() {
-  if (quited)
-    return;
+  if (quitted) {
+    if (!quittedStr)
+      return;
+    if (confirm(quittedStr)) {
+      document.location = document.location;
+      quittedStr = null;
+      return;
+    } else {
+      quittedStr = null;
+      return;
+    }
+  }
 
 _$_$if_WEB_SOCKETS_$_();
   if (websocket.state != WebSocketsUnavailable) {
@@ -2704,9 +2873,12 @@ _$_$if_WEB_SOCKETS_$_();
 	  websocket.state = WebSocketsUnavailable;
 	else {
 	  function reconnect() {
-	    ++websocket.reconnectTries;
-	    var ms = Math.min(120000, Math.exp(websocket.reconnectTries) * 500);
-	    setTimeout(function() { scheduleUpdate(); }, ms);
+	    if (!quitted) {
+	      ++websocket.reconnectTries;
+	      var ms = Math.min(120000, Math.exp(websocket.reconnectTries)
+				* 500);
+	      setTimeout(function() { scheduleUpdate(); }, ms);
+	    }
 	  }
 
 	  var protocolEnd = sessionUrl.indexOf("://"), wsurl;
@@ -2733,12 +2905,16 @@ _$_$if_WEB_SOCKETS_$_();
 	    websocket.reconnectTries = 0;
 	    websocket.state = WebSocketsWorking;
 	    handleResponse(0, event.data, null);
+	    if(connectionMonitor)
+			 connectionMonitor.onStatusChange('websocket', true);
 	  };
 
 	  ws.onerror = function(event) {
 	    /*
 	     * Sometimes, we can connect but cannot send data
 	     */
+	    if(connectionMonitor)
+			 connectionMonitor.onStatusChange('websocket', false);
 	    if (websocket.reconnectTries == 3 &&
 		websocket.state == WebSocketsUnknown)
 	      websocket.state = WebSocketsUnavailable;
@@ -2749,6 +2925,8 @@ _$_$if_WEB_SOCKETS_$_();
 	    /*
 	     * Sometimes, we can connect but cannot send data
 	     */
+	    if(connectionMonitor)
+			 connectionMonitor.onStatusChange('websocket', false);
 	    if (websocket.reconnectTries == 3 &&
 		websocket.state == WebSocketsUnknown)
 	      websocket.state = WebSocketsUnavailable;
@@ -2764,27 +2942,21 @@ _$_$if_WEB_SOCKETS_$_();
 	     * motivate proxies to keep connections open, but we've never
 	     * seen a browser pinging us ?
 	     *
-	     * So, we ping pong ourselves. It costs virtually nothing.
+	     * So, we ping pong ourselves.
 	     */
-	    ws.send('&signal=ping'); // to get our first onmessage
-
-	    if (websocket.keepAlive)
-	      clearInterval(websocket.keepAlive);
-
-	    websocket.keepAlive = setInterval
-	      (function() {
-		if (ws.readyState == 1)
-		  ws.send('&signal=ping');
-		else {
-		  clearInterval(websocket.keepAlive);
-		  websocket.keepAlive = null;
+	    if(connectionMonitor) {
+			 connectionMonitor.onStatusChange('websocket', true);
+			 connectionMonitor.onStatusChange('connectionStatus', 1);
 		}
-	      }, _$_SERVER_PUSH_TIMEOUT_$_);
+
+	    ws.send('&signal=ping'); // to get our first onmessage
+	    schedulePing();
 	  };
 	}
       }
 
       if (ws.readyState == 1) {
+	schedulePing();
 	sendUpdate();
 	return;
       }
@@ -2823,14 +2995,22 @@ function responseReceived(updateId, puzzle) {
 }
 
 var pageId = 0;
-function setPage(id)
-{
+function setPage(id) {
   pageId = id;
+}
+
+function sendError(err, errMsg) {
+  responsePending = comm.sendUpdate
+    ('request=jserror&err=' + encodeURIComponent(JSON.stringify(err)),
+     false, ackUpdateId, -1);
+_$_$if_SHOW_ERROR_$_();
+  alert(errMsg);
+_$_$endif_$_();
 }
 
 function sendUpdate() {
   if (self != window._$_APP_CLASS_$_) {
-    quit();
+    quit(null);
     return;
   }
 
@@ -2842,18 +3022,8 @@ function sendUpdate() {
 
   if (WT.isIEMobile) feedback = false;
 
-  if (quited) {
-    if (norestart)
-      return;
-    if (confirm("The application was quited, do you want to restart?")) {
-      document.location = document.location;
-      norestart = true;
-      return;
-    } else {
-      norestart = true;
-      return;
-    }
-  }
+  if (quitted)
+    return;
 
   var data, tm, poll;
 
@@ -2928,7 +3098,7 @@ function propagateSize(element, width, height) {
     element.wtHeight = height;
 
     if (width >= 0 && height >= 0)
-      emit(element, 'resized', width, height);
+      emit(element, 'resized', Math.round(width), Math.round(height));
   }
 }
 
@@ -3035,9 +3205,12 @@ function loadScript(uri, symbol, tries)
       if (t > 1) {
 	loadScript(uri, symbol, t - 1);
       } else {
-	alert('Fatal error: failed loading ' + uri);
-	quit();
-      }      
+	var err = {
+	  "error-description" : 'Fatal error: failed loading ' + uri
+	};
+	sendError(err, err["error-description"]);
+	quit(null);
+      }     
     }
   }
 
@@ -3182,7 +3355,7 @@ function enableInternalPaths(initialHash) {
 function ieAlternative(d)
 {
   if (d.ieAlternativeExecuted) return '0';
-  self.emit(d.parentNode, 'IeAltnernative');
+  self.emit(d.parentNode, 'IeAlternative');
   d.style.width = '';
   d.ieAlternativeExecuted = true;
   return '0';
@@ -3190,12 +3363,18 @@ function ieAlternative(d)
 
 window.onunload = function()
 {
-  if (!quited) {
+  if (!quitted) {
     self.emit(self, "Wt-unload");
     scheduleUpdate();
     sendUpdate();
   }
 };
+
+function setLocale(m)
+{	
+  if (WT.isIEMobile || m == '') return;
+  document.documentElement.lang = m
+}
 
 function setCloseMessage(m)
 {
@@ -3217,6 +3396,7 @@ this._p_ = {
   loadScript : loadScript,
   onJsLoad : onJsLoad,
   setTitle : setTitle,
+  setLocale : setLocale,
   update : update,
   quit : quit,
   setSessionUrl : setSessionUrl,
@@ -3243,7 +3423,8 @@ this._p_ = {
   response : responseReceived,
   setPage : setPage,
   setCloseMessage : setCloseMessage,
-  
+  setConnectionMonitor : setConnectionMonitor,
+
   propagateSize : propagateSize
 };
 

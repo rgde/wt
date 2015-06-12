@@ -65,23 +65,16 @@ protected:
       "function load() { ";
 
     if (triggerUpdate || request.tooLarge()) {
-      o << "if (window.parent."
-	<< WApplication::instance()->javaScriptClass() << ") ";
-
       if (triggerUpdate) {
 	LOG_DEBUG("Resource handleRequest(): signaling uploaded");
 
-	o << "window.parent."
-	  << WApplication::instance()->javaScriptClass()
-	  << "._p_.update(null, '"
-	  << fileUpload_->uploaded().encodeCmd() << "', null, true);";
+	o << "window.parent.postMessage('"
+	  << fileUpload_->uploaded().encodeCmd() << "', '*');";
       } else if (request.tooLarge()) {
 	LOG_DEBUG("Resource handleRequest(): signaling file-too-large");
 
-	o << "window.parent."
-	  << WApplication::instance()->javaScriptClass()
-	  << "._p_.update(null, '"
-	  << fileUpload_->fileTooLargeImpl().encodeCmd() << "', null, true);";
+	o << "window.parent.postMessage('"
+	  << fileUpload_->fileTooLargeImpl().encodeCmd() << "', '*');";
       }
     } else {
       LOG_DEBUG("Resource handleRequest(): no signal");
@@ -204,6 +197,11 @@ void WFileUpload::enableAjax()
   WWebWidget::enableAjax();
 }
 
+void WFileUpload::setFilters(const std::string& acceptAttributes)
+{
+  acceptAttributes_ = acceptAttributes;
+}
+
 void WFileUpload::setProgressBar(WProgressBar *bar)
 {
   delete progressBar_;
@@ -301,6 +299,9 @@ void WFileUpload::updateDom(DomElement& element, bool all)
   // change order of javaScript_ and properties rendering in DomElement
 
   if (fileUploadTarget_ && flags_.test(BIT_DO_UPLOAD)) {
+    // Reset the action and generate a new URL for the target,
+    // because the session id may have changed in the meantime
+    element.setAttribute("action", fileUploadTarget_->generateUrl());
     element.callMethod("submit()");
     flags_.reset(BIT_DO_UPLOAD);
 
@@ -314,10 +315,12 @@ void WFileUpload::updateDom(DomElement& element, bool all)
     if (!inputE)
       inputE = DomElement::getForUpdate("in" + id(), DomElement_INPUT);
 
-    if (isDisabled())
-      inputE->callMethod("disabled=true");
-    else
+    if (isEnabled())
       inputE->callMethod("disabled=false");
+    else
+      inputE->callMethod("disabled=true");
+
+    inputE->setAttribute("accept", acceptAttributes_);
 
     flags_.reset(BIT_ENABLED_CHANGED);
   }
@@ -407,6 +410,7 @@ DomElement *WFileUpload::createDomElement(WApplication *app)
       input->setAttribute("multiple", "multiple");
     input->setAttribute("name", "data");
     input->setAttribute("size", boost::lexical_cast<std::string>(textSize_));
+    input->setAttribute("accept", acceptAttributes_);
     input->setId("in" + id());
 
     if (!isEnabled())
@@ -417,6 +421,12 @@ DomElement *WFileUpload::createDomElement(WApplication *app)
 
     form->addChild(input);
 
+    doJavaScript("window.addEventListener('message', function(event) {"
+		 """if (" + jsRef() + ".action.indexOf(event.origin) === 0) {" 
+		 +    app->javaScriptClass()
+		 +    "._p_.update(null, event.data, null, true);"
+		 """}"
+		 "}, false);");
   } else {
     result->setAttribute("type", "file");
     if (flags_.test(BIT_MULTIPLE))

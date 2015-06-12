@@ -30,17 +30,39 @@ enum WidgetThemeRole {
   DialogBodyRole = 202,
   DialogFooterRole = 203,
   DialogCloseIconRole = 204,
+  DialogContent = 205, // For bootstrap 3 modal-content style
 
   TableViewRowContainerRole = 300,
 
   DatePickerPopupRole = 400,
+  TimePickerPopupRole = 410,
 
   PanelTitleBarRole = 500,
   PanelCollapseButtonRole = 501,
   PanelTitleRole = 502,
   PanelBodyRole = 503,
 
-  AuthWidgets = 600
+  AuthWidgets = 600,
+
+  InPlaceEditingRole = 700,
+
+  NavbarRole = 800,
+  NavCollapseRole = 801,
+  NavBrandRole = 802,
+  NavbarSearchRole = 803,
+  NavbarMenuRole = 804,
+  NavbarBtn = 805,
+  NavbarAlignLeftRole = 806,
+  NavbarAlignRightRole = 807
+};
+
+/*! \brief Enumeration for the role of a css class (for theme support)
+ *
+ * \sa WTheme::utilityCssClass()
+ */
+enum UtilityCssClassRole {
+  ToolTipInner = 100,
+  ToolTipOuter = 101
 };
 
 /*! \brief Enumeration for the role of a DOM element (for theme support)
@@ -144,6 +166,12 @@ public:
    */
   virtual std::string activeClass() const = 0;
 
+  /*! \brief Returns a generic CSS class name for the chosen role.
+   *
+   * \sa WTheme::utilityCssClassRole
+   */
+  virtual std::string utilityCssClass(int utilityCssClassRole) const = 0;
+
   /*! \brief Returns whether the theme allows for an anchor to be styled
    *         as a button.
    */
@@ -152,8 +180,8 @@ public:
   /*! \brief Applies a style that indicates the result of validation.
    */
   virtual void applyValidationStyle(WWidget *widget,
-				    const Wt::WValidator::Result& validation,
-				    WFlags<ValidationStyleFlag> flags) const
+                    const Wt::WValidator::Result& validation,
+                    WFlags<ValidationStyleFlag> flags) const
     = 0;
 
   virtual bool canBorderBoxElement(const DomElement& element) const = 0;

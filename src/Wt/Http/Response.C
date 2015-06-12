@@ -7,6 +7,7 @@
 #include "Wt/Http/Response"
 #include "Wt/Http/ResponseContinuation"
 #include "Wt/WResource"
+#include "Wt/WStringStream"
 #include "WebRequest.h"
 #include "WebUtils.h"
 
@@ -39,18 +40,19 @@ void Response::addHeader(const std::string& name, const std::string& value)
 
 ResponseContinuation *Response::createContinuation()
 {
-  if (!continuation_)
-    continuation_ = new ResponseContinuation(resource_, response_);
-  else
+  if (!continuation_) {
+    ResponseContinuation *c = new ResponseContinuation(resource_, response_);
+    continuation_ = resource_->addContinuation(c);
+  } else
     continuation_->resource_ = resource_;
 
-  return continuation_;
+  return continuation_.get();
 }
 
 ResponseContinuation *Response::continuation() const
 {
   if (continuation_ && continuation_->resource_)
-    return continuation_;
+    return continuation_.get();
   else
     return 0;
 }
@@ -62,53 +64,56 @@ WT_BOSTREAM& Response::out()
 	!continuation_ &&
 	(resource_->dispositionType() != WResource::NoDisposition
 	 || !resource_->suggestedFileName().empty())) {
-      std::string theDisposition;
+      WStringStream cdp;
 
       switch (resource_->dispositionType()) {
       default:
       case WResource::Inline:
-        theDisposition = "inline";
+        cdp << "inline";
         break;
       case WResource::Attachment:
-        theDisposition = "attachment";
+        cdp << "attachment";
         break;
       }
 
-      WString fileName = resource_->suggestedFileName();
+      const WString& fileName = resource_->suggestedFileName();
 
       if (!fileName.empty()) {
 	if (resource_->dispositionType() == WResource::NoDisposition) {
 	  // backward compatibility-ish with older Wt versions
-	  theDisposition = "attachment";
+	  cdp.clear();
+	  cdp << "attachment";
 	}
 
 	// Browser incompatibility hell: internatianalized filename suggestions
 	// First filename is for browsers that don't support RFC 5987
 	// Second filename is for browsers that do support RFC 5987
-	std::string fileField;
+	cdp << ';';
+
 	// We cannot query wApp here, because wApp doesn't exist for
 	// static resources.
-	bool isIE = response_->userAgent().find("MSIE") != std::string::npos;
-	bool isChrome = response_->userAgent().find("Chrome")
-	  != std::string::npos;
+	const char *ua = response_->userAgent();
+	bool isIE = ua && strstr(ua, "MSIE") != 0;
+	bool isChrome = ua && strstr(ua, "Chrome") != 0;
 
 	if (isIE || isChrome) {
 	  // filename="foo-%c3%a4-%e2%82%ac.html"
 	  // Note: IE never converts %20 back to space, so avoid escaping
 	  // IE wil also not url decode the filename if the file has no ASCII
 	  // extension (e.g. .txt)
-	  fileField = "filename=\"" +
-	    Utils::urlEncode(fileName.toUTF8(), " ") + "\";";
+	  cdp << "filename=\""
+	      << Utils::urlEncode(fileName.toUTF8(), " ")
+	      << "\";";
 	} else {
 	  // Binary UTF-8 sequence: for FF3, Safari, Chrome, Chrome9
-	  fileField = "filename=\"" + fileName.toUTF8() + "\";";
+	  cdp << "filename=\"" << fileName.toUTF8() << "\";";
 	}
 	// Next will be picked by RFC 5987 in favour of the
 	// one without specified encoding (Chrome9, 
-	fileField += Utils::EncodeHttpHeaderField("filename", fileName);
-	addHeader("Content-Disposition", theDisposition + ";" + fileField);
+	cdp << Utils::EncodeHttpHeaderField("filename", fileName);
+	addHeader("Content-Disposition", cdp.str());
       } else {
-	addHeader("Content-Disposition", theDisposition);
+	addHeader("Content-Disposition", cdp.str());
       }
     }
 
@@ -122,7 +127,7 @@ WT_BOSTREAM& Response::out()
 }
 
 Response::Response(WResource *resource, WebResponse *response,
-		   ResponseContinuation *continuation)
+		   ResponseContinuationPtr continuation)
   : resource_(resource),
     response_(response),
     continuation_(continuation),
@@ -133,7 +138,6 @@ Response::Response(WResource *resource, WebResponse *response,
 Response::Response(WResource *resource, WT_BOSTREAM& out)
   : resource_(resource),
     response_(0),
-    continuation_(0),
     out_(&out),
     headersCommitted_(false)
 { }

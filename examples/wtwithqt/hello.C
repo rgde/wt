@@ -34,13 +34,13 @@
 #include "HelloApplication.h"
 #include "QtObject.h"
 
-// Needed when using WQApplication with Qt eventloop = true
-//#include <QApplication>
+// Needed when using WQCoreApplication with Qt eventloop = true
+//#include <QCoreApplication>
 
 using namespace Wt;
 
-HelloApplication::HelloApplication(const WEnvironment& env)
-  : WQApplication(env /*, true */)
+Dictionary::Dictionary(const WEnvironment& env)
+  : WQApplication(env /*,  true */)
 {
   /*
    * Note: do not create any Qt objects from here. Initialize your
@@ -48,7 +48,7 @@ HelloApplication::HelloApplication(const WEnvironment& env)
    */
 }
 
-void HelloApplication::create()
+void Dictionary::create()
 {
   setTitle("Hello world");
 
@@ -63,8 +63,8 @@ void HelloApplication::create()
 
   greeting_ = new WText(root());
 
-  b->clicked().connect(this, &HelloApplication::propagateGreet);
-  nameEdit_->enterPressed().connect(this, &HelloApplication::propagateGreet);
+  b->clicked().connect(this, &Dictionary::propagateGreet);
+  nameEdit_->enterPressed().connect(this, &Dictionary::propagateGreet);
 
   qtSender_ = new QtObject(this);
   qtReceiver_ = new QtObject(this);
@@ -73,7 +73,7 @@ void HelloApplication::create()
 		   qtReceiver_, SLOT(doGreet(const QString&)));
 }
 
-void HelloApplication::destroy()
+void Dictionary::destroy()
 {
   /*
    * Note: Delete any Qt object from here.
@@ -82,25 +82,25 @@ void HelloApplication::destroy()
   delete qtReceiver_;
 }
 
-void HelloApplication::propagateGreet()
+void Dictionary::propagateGreet()
 {
   qtSender_->passGreet(toQString(nameEdit_->text()));
 }
 
-void HelloApplication::doGreet(const QString& qname)
+void Dictionary::doGreet(const QString& qname)
 {
   greeting_->setText("Hello there, " + toWString(qname));
 }
 
 WApplication *createApplication(const WEnvironment& env)
 {
-  return new HelloApplication(env);
+  return new Dictionary(env);
 }
 
 int main(int argc, char **argv)
 {
   // Needed for Qt's eventloop threads to work
-  //QApplication app(argc, argv);
+  //QCoreApplication app(argc, argv);
 
   return WRun(argc, argv, &createApplication);
 }

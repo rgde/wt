@@ -44,16 +44,18 @@ const WtLibVersion WT_INCLUDED_VERSION = WtLibVersion();
 
 const char *WApplication::RESOURCES_URL = "resourcesURL";
 
+MetaHeader::MetaHeader(MetaHeaderType aType,
+		       const std::string& aName,
+		       const WString& aContent,
+		       const std::string& aLang,
+		       const std::string& aUserAgent)
+  : type(aType), name(aName), lang(aLang), userAgent(aUserAgent),
+    content(aContent)
+{ }
+
 WApplication::ScriptLibrary::ScriptLibrary(const std::string& anUri,
 					   const std::string& aSymbol)
   : uri(anUri), symbol(aSymbol)
-{ }
-
-WApplication::MetaHeader::MetaHeader(MetaHeaderType aType,
-				     const std::string& aName,
-				     const WString& aContent,
-				     const std::string& aLang)
-  : type(aType), name(aName), lang(aLang), content(aContent)
 { }
 
 WApplication::MetaLink::MetaLink(const std::string &aHref,
@@ -88,6 +90,7 @@ WApplication::WApplication(const WEnvironment& env
 #endif // WT_CNOR
     titleChanged_(false),
     closeMessageChanged_(false),
+    localeChanged_(false),
     localizedStrings_(0),
     internalPathChanged_(this),
     serverPush_(0),
@@ -96,7 +99,7 @@ WApplication::WApplication(const WEnvironment& env
     eventSignalPool_(new boost::pool<>(sizeof(EventSignal<>))),
 #endif // WT_CNOR
     javaScriptClass_("Wt"),
-    quited_(false),
+    quitted_(false),
     internalPathsEnabled_(false),
     exposedOnly_(0),
     loadingIndicator_(0),
@@ -127,7 +130,7 @@ WApplication::WApplication(const WEnvironment& env
   session_->setApplication(this);
   locale_ = environment().locale();
 
-  newInternalPath_ = environment().internalPath();
+  renderedInternalPath_ = newInternalPath_ = environment().internalPath();
   internalPathIsChanged_ = false;
   internalPathDefaultValid_ = true;
   internalPathValid_ = true;
@@ -140,7 +143,11 @@ WApplication::WApplication(const WEnvironment& env
   setLocalizedStrings(0);
 #endif // !WT_TARGET_JAVA
 
-  if (environment().agentIsIE()) {
+  if (!environment().javaScript() && environment().agentIsIE()) {
+    /*
+     * WARNING: Similar code in WebRenderer.C must be kept in sync for 
+     *          plain boot.
+     */
     if (environment().agent() < WEnvironment::IE9) {
       const Configuration& conf = environment().server()->configuration(); 
       bool selectIE7 = conf.uaCompatible().find("IE8=IE7")
@@ -148,8 +155,13 @@ WApplication::WApplication(const WEnvironment& env
 
       if (selectIE7)
 	addMetaHeader(MetaHttpHeader, "X-UA-Compatible", "IE=7");
-    } else
-      addMetaHeader(MetaHttpHeader, "X-UA-Compatible", "IE=9");
+    } else if (environment().agent() == WEnvironment::IE9) {
+	addMetaHeader(MetaHttpHeader, "X-UA-Compatible", "IE=9");
+    } else if (environment().agent() == WEnvironment::IE10) {
+	addMetaHeader(MetaHttpHeader, "X-UA-Compatible", "IE=10");
+    } else {
+	addMetaHeader(MetaHttpHeader, "X-UA-Compatible", "IE=11");
+    }
   }
 
   domRoot_ = new WContainerWidget();
@@ -238,8 +250,6 @@ WApplication::WApplication(const WEnvironment& env
 		      "-khtml-user-select: normal;"
 		      "-webkit-user-select: text;"
 		      "user-select: text;");
-  styleSheet_.addRule(".Wt-sbspacer", "float: right; width: 16px; height: 1px;"
-		      "border: 0px; display: none;");
   styleSheet_.addRule(".Wt-domRoot", "position: relative;");
   styleSheet_.addRule("body.Wt-layout", std::string() +
 		      "height: 100%; width: 100%;"
@@ -452,6 +462,12 @@ std::string WApplication::docRoot() const
   return environment().getCgiValue("DOCUMENT_ROOT");
 }
 
+void WApplication::setConnectionMonitor(const std::string& jsFunction) {
+  doJavaScript(javaScriptClass_
+	       + "._p_.setConnectionMonitor("+ jsFunction + ")");
+
+}
+
 #endif // WT_TARGET_JAVA
 
 void WApplication::bindWidget(WWidget *widget, const std::string& domId)
@@ -544,6 +560,11 @@ void WApplication::useStyleSheet(const WLink& link,
 void WApplication::useStyleSheet(const WCssStyleSheet& styleSheet,
 				 const std::string& condition)
 {
+
+  if (styleSheet.link().isNull())
+    throw WException(
+        "WApplication::useStyleSheet stylesheet must have valid link!");
+
   bool display = true;
 
   if (!condition.empty()) {
@@ -621,6 +642,20 @@ void WApplication::useStyleSheet(const WCssStyleSheet& styleSheet,
   }
 }
 
+void WApplication::removeStyleSheet(const WLink& link)
+{
+  for (int i = (int)styleSheets_.size() - 1; i > -1; --i) {
+    if (styleSheets_[i].link() == link) {
+      WCssStyleSheet &sheet = styleSheets_[i];
+      styleSheetsToRemove_.push_back(sheet);
+      if (i > (int)styleSheets_.size() + styleSheetsAdded_ - 1)
+        styleSheetsAdded_--;
+      styleSheets_.erase(styleSheets_.begin() + i);
+      break;
+    }
+  }
+}
+
 const WEnvironment& WApplication::environment() const
 {
   return session_->env();
@@ -664,7 +699,13 @@ std::string WApplication::resolveRelativeUrl(const std::string& url) const
 
 void WApplication::quit()
 {
-  quited_ = true;
+  quit(WString::tr("Wt.QuittedMessage"));
+}
+
+void WApplication::quit(const WString& restartMessage)
+{
+  quitted_ = true;
+  quittedMessage_ = restartMessage;
 }
 
 WWidget *WApplication::findWidget(const std::string& name)
@@ -699,6 +740,12 @@ void WApplication::unload()
   }
 #endif // WT_TARGET_JAVA
 
+  quit();
+}
+
+void WApplication::handleJavaScriptError(const std::string& errorText)
+{
+  LOG_ERROR("JavaScript error: " << errorText);
   quit();
 }
 
@@ -829,6 +876,7 @@ WObject *WApplication::decodeObject(const std::string& objectId) const
 void WApplication::setLocale(const WLocale& locale)
 {
   locale_ = locale;
+  localeChanged_ = true;
   refresh();
 }
 
@@ -919,7 +967,7 @@ void WApplication::refresh()
   if (domRoot2_) {
     domRoot2_->refresh();
   } else {
-    widgetRoot_->refresh();
+    domRoot_->refresh();
   }
 
   if (title_.refresh())
@@ -1096,7 +1144,8 @@ void WApplication::addMetaHeader(MetaHeaderType type,
   }
 
   if (!content.empty())
-    metaHeaders_.push_back(MetaHeader(type, name, content, lang));
+    metaHeaders_.push_back(MetaHeader(type, name, content, lang,
+				      std::string()));
 }
 
 void WApplication::removeMetaHeader(MetaHeaderType type,
@@ -1143,7 +1192,7 @@ void WApplication::enableInternalPaths()
 
     doJavaScript
       (javaScriptClass() + "._p_.enableInternalPaths("
-       + WWebWidget::jsStringLiteral(newInternalPath_)
+       + WWebWidget::jsStringLiteral(renderedInternalPath_)
        + ");");
 
     if (session_->useUglyInternalPaths())
@@ -1214,9 +1263,6 @@ void WApplication::setInternalPath(const std::string& path, bool emitChange)
 {
   enableInternalPaths();
 
-  if (!internalPathIsChanged_)
-    oldInternalPath_ = newInternalPath_;
-
   if (!session_->renderer().preLearning() && emitChange)
     changeInternalPath(path);
   else
@@ -1241,7 +1287,7 @@ bool WApplication::changeInternalPath(const std::string& aPath)
   std::string path = Utils::prepend(aPath, '/');
 
   if (path != internalPath()) {
-    newInternalPath_ = path;
+    renderedInternalPath_ = newInternalPath_ = path;
     internalPathValid_ = internalPathDefaultValid_;
     internalPathChanged_.emit(newInternalPath_);
 
@@ -1254,7 +1300,7 @@ bool WApplication::changeInternalPath(const std::string& aPath)
 
 bool WApplication::changedInternalPath(const std::string& path)
 {
-  if (!environment().hashInternalPaths())
+  if (!environment().internalPathUsingFragments())
     session_->setPagePathInfo(path);
 
   return changeInternalPath(path);
@@ -1318,7 +1364,8 @@ public:
     : handler_(0)
   {
 #ifdef WT_THREADED
-    handler_ = new WebSession::Handler(app->weakSession_.lock(), true);
+    handler_ = new WebSession::Handler(app->weakSession_.lock(),
+				       WebSession::Handler::TakeLock);
 #endif // WT_THREADED
   }
 
@@ -1380,7 +1427,7 @@ WApplication::UpdateLock::UpdateLock(WApplication *app)
   if (handler && handler->haveLock() && handler->session() == app->session_)
     return;
 
-  new WebSession::Handler(app->session_, true);
+  new WebSession::Handler(app->session_, WebSession::Handler::TakeLock);
 
   createdHandler_ = true;
 }
@@ -1450,6 +1497,11 @@ void WApplication::processEvents()
   doJavaScript("setTimeout(\"" + javaScriptClass_
 	       + "._p_.update(null,'none',null,true);\",0);");
 
+  waitForEvent();
+}
+
+void WApplication::waitForEvent()
+{
   if (!environment().isTest())
     session_->doRecursiveEventLoop();
 }

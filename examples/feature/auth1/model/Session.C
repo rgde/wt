@@ -38,6 +38,7 @@ void Session::configureAuth()
 {
   myAuthService.setAuthTokensEnabled(true, "logincookie");
   myAuthService.setEmailVerificationEnabled(true);
+  myAuthService.setEmailVerificationRequired(true);
 
   Wt::Auth::PasswordVerifier *verifier = new Wt::Auth::PasswordVerifier();
   verifier->addHashFunction(new Wt::Auth::BCryptHashFunction(7));
@@ -51,6 +52,9 @@ void Session::configureAuth()
 
   if (Wt::Auth::FacebookService::configured())
     myOAuthServices.push_back(new Wt::Auth::FacebookService(myAuthService));
+
+  for (unsigned i = 0; i < myOAuthServices.size(); ++i)
+    myOAuthServices[i]->generateRedirectEndpoint();
 }
 
 Session::Session(const std::string& sqliteDb)

@@ -69,9 +69,7 @@ void WWidget::removeChild(WObject *child)
 }
 
 void WWidget::refresh()
-{
-  setJsSize();
-}
+{ }
 
 void WWidget::resize(const WLength& width, const WLength& height)
 {
@@ -318,6 +316,11 @@ WString WWidget::tr(const char *key)
 WString WWidget::tr(const std::string& key)
 {
   return WString::tr(key);
+}
+
+void WWidget::setFocus()
+{
+  setFocus(true);
 }
 
 void WWidget::acceptDrops(const std::string& mimeType,

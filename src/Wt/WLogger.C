@@ -236,6 +236,11 @@ void WLogger::setFile(const std::string& path)
 #else
   ofs = new std::ofstream(path.c_str(), 
 			  std::ios_base::out | std::ios_base::ate);
+  if (!ofs->is_open()) {
+    // maybe a special file (pipe, /dev/null) that does not support ate?
+    delete ofs;
+    ofs = new std::ofstream(path.c_str(), std::ios_base::out);
+  }
 #endif
   
   if (ofs->is_open()) {
@@ -308,6 +313,11 @@ void WLogger::configure(const std::string& config)
 
 bool WLogger::logging(const std::string& type) const
 {
+  return logging(type.c_str());
+}
+
+bool WLogger::logging(const char *type) const
+{
   bool result = false;
 
   for (unsigned i = 0; i < rules_.size(); ++i)
@@ -331,6 +341,22 @@ bool WLogger::logging(const std::string& type, const std::string& scope) const
 	result = rules_[i].include;
 
   return result;
+}
+
+WLogger& logInstance()
+{ 
+  WebSession *session = WebSession::instance();
+
+  if (session)
+    return session->logInstance();
+  else {
+    WServer *server = WServer::instance();
+
+    if (server)
+      return server->logger();
+    else
+      return defaultLogger;
+  }
 }
 
 WLogEntry log(const std::string& type)

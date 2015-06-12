@@ -104,7 +104,7 @@ WebGLDemo::WebGLDemo(const WEnvironment& env)
   fragmentShaderText_ = new WTextArea;
   fragmentShaderText_->resize(750, 250);
   tabs->addTab(fragmentShaderText_, "Fragment Shader");
-  WText *shaderInfo = new WText(root());
+
   vertexShaderText_ = new WTextArea;
   vertexShaderText_->resize(750, 250);
   tabs->addTab(vertexShaderText_, "Vertex Shader");
@@ -148,17 +148,11 @@ WApplication *createApplication(const WEnvironment& env)
 int main(int argc, char **argv)
 {
   try {
-    WServer server(argv[0]);
+    WServer server(argc, argv, WTHTTP_CONFIGURATION);
     readObj(WApplication::appRoot() + "teapot.obj", data);
 
-    server.setServerConfiguration(argc, argv, WTHTTP_CONFIGURATION);
-
     server.addEntryPoint(Wt::Application, createApplication);
-    if (server.start()) {
-      int sig = WServer::waitForShutdown();
-
-      server.stop();
-    }
+    server.run();
   } catch (WServer::Exception& e) {
     std::cerr << e.what() << "\n";
     return 1;

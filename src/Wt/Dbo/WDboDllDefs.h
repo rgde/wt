@@ -11,7 +11,7 @@
 
 // Source: http://www.nedprod.com/programs/gccvisibility.html
 
-#ifdef WIN32
+#ifdef WT_WIN32
   #define WTDBO_IMPORT __declspec(dllimport)
   #define WTDBO_EXPORT __declspec(dllexport)
   #define WTDBO_DLLLOCAL
@@ -31,7 +31,7 @@
 #endif
 
 // Define wt_EXPORTS for DLL builds
-#ifdef WIN32
+#ifdef WT_WIN32
   #ifdef wtdbo_EXPORTS
     #define WTDBO_API WTDBO_EXPORT
   #else
@@ -43,6 +43,20 @@
   #endif
 #else
   #define WTDBO_API
+#endif
+
+#ifndef WT_CXX11
+
+#if defined(__GXX_EXPERIMENTAL_CXX0X__) || __cplusplus >= 201103L
+#define WT_CXX11
+#endif
+
+#ifdef WT_CXX11
+#define WT_CXX11ONLY(x) x
+#else
+#define WT_CXX11ONLY(x)
+#endif
+
 #endif
 
 #endif // DLLDEFS_H_

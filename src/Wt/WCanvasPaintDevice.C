@@ -15,6 +15,7 @@
 
 #include "DomElement.h"
 #include "WebUtils.h"
+#include "ServerSideFontMetrics.h"
 
 #include <cmath>
 #include <sstream>
@@ -89,34 +90,40 @@ WCanvasPaintDevice::WCanvasPaintDevice(const WLength& width,
     height_(height),
     painter_(0),
     paintUpdate_(paintUpdate),
-    busyWithPath_(false)
+    busyWithPath_(false),
+    fontMetrics_(0)
 { 
-  textMethod_ = DomText;
+  textMethod_ = Html5Text;
 
   WApplication *app = WApplication::instance();
 
   if (app) {
-    if (app->environment().agentIsIE()) {
-      textMethod_ = Html5Text;
-    } else if (app->environment().agentIsChrome()) {
-      if (app->environment().agent() >= WEnvironment::Chrome2
-	  && !app->environment().agentIsMobileWebKit())
-	textMethod_ = Html5Text;
+    if (app->environment().agentIsChrome()) {
+      if (app->environment().agent() <= WEnvironment::Chrome2)
+	textMethod_ = DomText;
     } else if (app->environment().agentIsGecko()) {
-      if (app->environment().agent() >= WEnvironment::Firefox3_5)
-	textMethod_ = Html5Text;
-      else if (app->environment().agent() >= WEnvironment::Firefox3_0)
+      if (app->environment().agent() < WEnvironment::Firefox3_0)
+	textMethod_ = DomText;
+      else if (app->environment().agent() < WEnvironment::Firefox3_5)
 	textMethod_ = MozText;
     } else if (app->environment().agentIsSafari()) {
-      if (app->environment().agent() >= WEnvironment::Safari4)
-	textMethod_ = Html5Text;
+      if (app->environment().agent() == WEnvironment::Safari3)
+	textMethod_ = DomText;
     }
   }
 }
 
+WCanvasPaintDevice::~WCanvasPaintDevice()
+{
+  delete fontMetrics_;
+}
+
 WFlags<WPaintDevice::FeatureFlag> WCanvasPaintDevice::features() const
 {
-  return 0; // We could implement wordwrap
+  if (ServerSideFontMetrics::available())
+    return HasFontMetrics;
+  else
+    return 0;
 }
 
 void WCanvasPaintDevice::render(const std::string& canvasId,
@@ -166,10 +173,21 @@ void WCanvasPaintDevice::render(const std::string& canvasId,
     text->addChild(textElements_[i]);
 }
 
+void WCanvasPaintDevice::renderPaintCommands(std::stringstream& js_target,
+					     const std::string& canvasElement)
+{
+  js_target << "var ctx=" << canvasElement << ".getContext('2d');";
+  js_target << "if (!ctx.setLineDash) {ctx.setLineDash = function(a){};}";
+  js_target << "ctx.save();ctx.save();" << js_.str() 
+	    << "ctx.restore();ctx.restore();";
+}
+
 void WCanvasPaintDevice::init()
 {
   currentBrush_ = WBrush();
+  currentNoBrush_ = false;
   currentPen_ = WPen();
+  currentNoPen_ = false;
   currentPen_.setCapStyle(FlatCap);
   currentShadow_ = WShadow();
   currentFont_ = WFont();
@@ -234,11 +252,11 @@ void WCanvasPaintDevice::drawArc(const WRectF& rect, double startAngle,
   // this temporary coordinate system
   js_ << "ctx.restore();";
 
-  if (currentBrush_.style() != NoBrush) {
+  if (painter_->brush().style() != NoBrush) {
     js_ << "ctx.fill();";
   }
 
-  if (currentPen_.style() != NoPen) {
+  if (painter_->pen().style() != NoPen) {
     js_ << "ctx.stroke();";
   }
 }
@@ -250,13 +268,18 @@ int WCanvasPaintDevice::createImage(const std::string& imgUri)
 }
 
 void WCanvasPaintDevice::drawImage(const WRectF& rect,
-				   const std::string& imgUri,
+				   const std::string& imageUri,
 				   int imgWidth, int imgHeight,
 				   const WRectF& sourceRect)
 {
   finishPath();
 
   renderStateChanges(true);
+
+  WApplication *app = WApplication::instance();
+  std::string imgUri;
+  if (app)
+    imgUri = app->resolveRelativeUrl(imageUri);
 
   int imageIndex = createImage(imgUri);
 
@@ -325,7 +348,7 @@ void WCanvasPaintDevice::drawPlainPath(std::stringstream& out,
       out << Utils::round_js_str(s.y() + pathTranslation_.y(), 3, buf);
       break;
     case WPainterPath::Segment::ArcR:
-      out << ',' << Utils::round_js_str(s.x(), 3, buf);
+      out << ',' << Utils::round_js_str(std::max(0.0, s.x()), 3, buf);
       break;
     case WPainterPath::Segment::ArcAngleSweep:
       {
@@ -372,10 +395,10 @@ void WCanvasPaintDevice::drawPlainPath(std::stringstream& out,
 void WCanvasPaintDevice::finishPath()
 {
   if (busyWithPath_) {
-    if (currentBrush_.style() != NoBrush)
+    if (!currentNoBrush_)
       js_ << "ctx.fill();";
 
-    if (currentPen_.style() != NoPen)
+    if (!currentNoPen_)
       js_ << "ctx.stroke();";
 
     js_ << '\n';
@@ -389,8 +412,8 @@ void WCanvasPaintDevice::drawPath(const WPainterPath& path)
   renderStateChanges(false);
 
   drawPlainPath(js_, path);
-  if (currentBrush_.color().alpha() != 255 ||
-      currentPen_.color().alpha() != 255)
+  if (painter_->brush().color().alpha() != 255 ||
+      painter_->pen().color().alpha() != 255)
     finishPath();
 }
 
@@ -591,12 +614,18 @@ void WCanvasPaintDevice::drawText(const WRectF& rect,
 WTextItem WCanvasPaintDevice::measureText(const WString& text, double maxWidth,
 					  bool wordWrap)
 {
-  throw WException("WCanvasPaintDevice::measureText() not supported");
+  if (!fontMetrics_)
+    fontMetrics_ = new ServerSideFontMetrics();
+
+  return fontMetrics_->measureText(painter()->font(), text, maxWidth, wordWrap);
 }
 
 WFontMetrics WCanvasPaintDevice::fontMetrics()
 {
-  throw WException("WCanvasPaintDevice::fontMetrics() not (yet?) supported");
+  if (!fontMetrics_)
+    fontMetrics_ = new ServerSideFontMetrics();
+
+  return fontMetrics_->fontMetrics(painter()->font());
 }
 
 void WCanvasPaintDevice::setChanged(WFlags<ChangeFlag> flags)
@@ -659,17 +688,38 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
   if (!changeFlags_)
     return;
 
-  bool brushChanged
-    = (changeFlags_ & Brush) && (currentBrush_ != painter()->brush());
-  bool penChanged
-    = (changeFlags_ & Pen) && (currentPen_ != painter()->pen());
-  bool penColorChanged
-    = penChanged && (currentPen_.color() != painter()->pen().color() ||
-		     currentPen_.gradient() != painter()->pen().gradient());
-  bool shadowChanged
-    = (changeFlags_ & Shadow) && (currentShadow_ != painter()->shadow());
-  bool fontChanged
-    = (changeFlags_ & Font) && (currentFont_ != painter()->font());
+  /*
+   * For unclear reasons, Firefox on Linux reacts badly against very
+   * long painter paths (e.g. when drawing markers in charts) and by
+   * more prematurely rendering pen/brush changes we avoid that.
+   */
+  WApplication *app = WApplication::instance();
+  bool slowFirefox = app && app->environment().agentIsGecko();
+  if (slowFirefox &&
+      app->environment().userAgent().find("Linux") == std::string::npos)
+    slowFirefox = false;
+
+  bool brushChanged =
+    (changeFlags_ & Brush) &&
+    (currentBrush_ != painter()->brush()) &&
+    (slowFirefox || painter()->brush().style() != NoBrush);
+
+  bool penChanged =
+    (changeFlags_ & Pen) &&
+    (currentPen_ != painter()->pen()) &&
+    (slowFirefox || painter()->pen().style() != NoPen);
+
+  bool penColorChanged = 
+    penChanged && 
+    (currentPen_.color() != painter()->pen().color() ||
+     currentPen_.gradient() != painter()->pen().gradient());
+
+  bool shadowChanged =
+    (changeFlags_ & Shadow)
+    && (currentShadow_ != painter()->shadow());
+
+  bool fontChanged = (changeFlags_ & Font)
+    && (currentFont_ != painter()->font());
 
   if (changeFlags_ & (Transform | Clipping)) {
     bool resetTransform = false;
@@ -764,11 +814,22 @@ void WCanvasPaintDevice::renderStateChanges(bool resetPathTranslation)
     }
   }
 
-  if (penChanged || brushChanged || shadowChanged)
+  bool newNoPen = painter()->pen().style() == NoPen;
+  bool newNoBrush = painter()->brush().style() == NoBrush;
+
+  if (penChanged || brushChanged || shadowChanged ||
+      newNoBrush != currentNoBrush_ ||
+      newNoPen != currentNoPen_)
     finishPath();
+
+  currentNoPen_ = painter()->pen().style() == NoPen;
+  currentNoBrush_ = painter()->brush().style() == NoBrush;
 
   if (penChanged) {
     if (penColorChanged) {
+      // prevent infinite recursion by applying new color to old pen
+      currentPen_.setColor(painter()->pen().color());
+      currentPen_.setGradient(painter()->pen().gradient());
       if (!painter()->pen().gradient().isEmpty()) {
 	std::string gradientName = defineGradient(painter()->pen().gradient(),
 						  js_);

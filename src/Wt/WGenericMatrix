@@ -22,6 +22,8 @@
 #include <boost/numeric/ublas/matrix_proxy.hpp>
 #include <boost/numeric/ublas/io.hpp>
 
+#include <ostream>
+
 namespace Wt {
 
 /*! \class WGenericMatrix Wt/WGenericMatrix Wt/WGenericMatrix
@@ -46,9 +48,9 @@ namespace Wt {
 template<typename T, std::size_t Rows, std::size_t Cols>
 class WGenericMatrix
 {
+public:
   typedef boost::numeric::ublas::bounded_matrix<T, Rows, Cols,
     boost::numeric::ublas::row_major> MatrixType;
-public:
   typedef typename boost::numeric::ublas::bounded_matrix<T, Rows, Cols,
     boost::numeric::ublas::row_major>::array_type ArrayType;
 
@@ -179,7 +181,7 @@ public:
    */
   bool operator!=(const WGenericMatrix<T, Rows, Cols> &rhs) const {
     return !(*this == rhs);
-   }
+  }
 
   /*! \brief Returns the element at the given position
    */
@@ -192,20 +194,39 @@ public:
    */
   T &operator()(int row, int column) { return m_(row, column); }
 
+  /*! \brief Returns the element at the given position
+   */
+  const T &at(int row, int column) const
+  {
+    return m_(row, column);
+  }
+
+  /*! \brief Returns the element at the given position
+   */
+  T &at(int row, int column) { return m_(row, column); } 
+
+#ifdef WT_TARGET_JAVA
+  void setElement(int row, int column, float v);
+#endif
+
   /*! \brief Multiply every element of the matrix with the given factor
    */
   WGenericMatrix<T, Rows, Cols> &operator*=(const T &factor)
   {
+#ifndef WT_TARGET_JAVA
     m_ *= factor;
     return *this;
+#endif
   }
 
   /*! \brief Divide every element of the matrix by the given factor
    */
   WGenericMatrix<T, Rows, Cols> &operator/=(const T &factor)
   {
+#ifndef WT_TARGET_JAVA
     m_ /= factor;
     return *this;
+#endif
   }
 
   /*! \brief Add the given matrix to this matrix
@@ -213,8 +234,10 @@ public:
   WGenericMatrix<T, Rows, Cols> &operator+=(
     const WGenericMatrix<T, Rows, Cols> &rhs)
   {
+#ifndef WT_TARGET_JAVA
     m_ += rhs.m_;
     return *this;
+#endif
   }
 
   /*! \brief Substract the given matrix from this matrix
@@ -222,8 +245,10 @@ public:
   WGenericMatrix<T, Rows, Cols> &operator-=(
     const WGenericMatrix<T, Rows, Cols> &rhs)
   {
+#ifndef WT_TARGET_JAVA
     m_ -= rhs.m_;
     return *this;
+#endif
   }
 
   MatrixType &impl() { return m_; }
@@ -240,8 +265,10 @@ template<typename T, std::size_t A, std::size_t B, std::size_t C>
 inline WGenericMatrix<T, A, C> operator*(const WGenericMatrix<T, A, B> &l,
   const WGenericMatrix<T, B, C> &r)
 {
+#ifndef WT_TARGET_JAVA
   using namespace boost::numeric::ublas;
-  return prod(l.impl(), r.impl());
+  return WGenericMatrix<T, A, C>(prod(l.impl(), r.impl()));
+#endif
 }
 
 /*! \brief Print the matrix to an ostream
@@ -250,7 +277,9 @@ template<typename T, std::size_t Rows, std::size_t Cols>
 std::ostream &operator<<(std::ostream &os,
   const WGenericMatrix<T, Rows, Cols> &m)
 {
+#ifndef WT_TARGET_JAVA
   return os << m.impl();
+#endif
 }
 
 /*! \brief Multiply every element in the matrix with the given factor
@@ -259,7 +288,9 @@ template<typename T, std::size_t Rows, std::size_t Cols>
 inline WGenericMatrix<T, Rows, Cols> operator*(const T &factor,
   const WGenericMatrix<T, Rows, Cols> &m)
 {
-  return factor * m.impl();
+#ifndef WT_TARGET_JAVA
+  return WGenericMatrix<T, Rows, Cols>(factor * m.impl());
+#endif
 }
 
 /*! \brief Multiply every element in the matrix with the given factor
@@ -268,7 +299,9 @@ template<typename T, std::size_t Rows, std::size_t Cols>
 inline WGenericMatrix<T, Rows, Cols> operator*(
   const WGenericMatrix<T, Rows, Cols> &m, const T &factor)
 {
-  return m.impl() * factor;
+#ifndef WT_TARGET_JAVA
+  return WGenericMatrix<T, Rows, Cols>(m.impl() * factor);
+#endif
 }
 
 /*! \brief Divide every element in the matrix by the given factor
@@ -277,7 +310,9 @@ template<typename T, std::size_t Rows, std::size_t Cols>
 inline WGenericMatrix<T, Rows, Cols> operator/(
   const WGenericMatrix<T, Rows, Cols> &m, const T &factor)
 {
-  return m.impl() / factor;
+#ifndef WT_TARGET_JAVA
+  return WGenericMatrix<T, Rows, Cols>(m.impl() / factor);
+#endif
 }
 
 /*! \brief Add two matrices together
@@ -287,7 +322,9 @@ inline WGenericMatrix<T, Rows, Cols> operator+(
   const WGenericMatrix<T, Rows, Cols> &l,
   const WGenericMatrix<T, Rows, Cols> &r)
 {
-  return l.impl() + r.impl();
+#ifndef WT_TARGET_JAVA
+  return WGenericMatrix<T, Rows, Cols>(l.impl() + r.impl());
+#endif
 }
 
 /*! \brief Substract two matrices
@@ -297,7 +334,9 @@ inline WGenericMatrix<T, Rows, Cols> operator-(
   const WGenericMatrix<T, Rows, Cols> &l,
   const WGenericMatrix<T, Rows, Cols> &r)
 {
-  return l.impl() - r.impl();
+#ifndef WT_TARGET_JAVA
+  return WGenericMatrix<T, Rows, Cols>(l.impl() - r.impl());
+#endif
 }
 
 /*! \brief Negate every element in the matrix
@@ -306,7 +345,9 @@ template<typename T, std::size_t Rows, std::size_t Cols>
 inline WGenericMatrix<T, Rows, Cols> operator-(
   const WGenericMatrix<T, Rows, Cols> &m)
 {
-  return -m.impl();
+#ifndef WT_TARGET_JAVA
+  return WGenericMatrix<T, Rows, Cols>(-m.impl());
+#endif
 }
 
 }

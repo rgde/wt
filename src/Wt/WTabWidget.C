@@ -51,9 +51,9 @@ WMenuItem *WTabWidget::addTab(WWidget *child, const WString& label,
 
   WMenuItem *result = new WMenuItem(label, child, policy);
 
-  menu_->addItem(result);
-
   contentsWidgets_.push_back(child);
+
+  menu_->addItem(result);
 
   return result;
 }
@@ -162,7 +162,7 @@ void WTabWidget::setTabToolTip(int index, const WString& tip)
   item->setToolTip(tip);
 }
 
-const WString& WTabWidget::tabToolTip(int index) const
+WString WTabWidget::tabToolTip(int index) const
 {
   WMenuItem *item = menu_->itemAt(index);
   return item->toolTip();
@@ -201,6 +201,12 @@ void WTabWidget::onItemClosed(WMenuItem *item)
 WStackedWidget *WTabWidget::contentsStack() const
 {
   return menu_->contentsStack();
+}
+
+void WTabWidget::setOverflow(WContainerWidget::Overflow value,
+	WFlags<Orientation> orientation)
+{
+  layout_->setOverflow(value, orientation);
 }
 
 }

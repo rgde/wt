@@ -37,10 +37,18 @@ class CombinedStyleSheet : public StyleSheet
 {
 public:
   CombinedStyleSheet() { }
-  virtual ~CombinedStyleSheet() { }
+  virtual ~CombinedStyleSheet() {
+#ifndef WT_TARGET_JAVA
+    for (unsigned i = 0; i < sheets_.size(); ++i)
+      if (!sheets_not_owned_.count(sheets_[i]))
+        delete sheets_[i];
+#endif //WT_TARGET_JAVA
+  }
 
-  void use(StyleSheet *sh) {
+  void use(StyleSheet *sh, bool noFree = false) {
     sheets_.push_back(sh);
+    if (noFree)
+      sheets_not_owned_.insert(sh);
   }
 
   virtual unsigned int rulesetSize() const {
@@ -62,6 +70,7 @@ public:
 
 private:
   std::vector<StyleSheet *> sheets_;
+  std::set<StyleSheet *> sheets_not_owned_;
 };
 
 WTextRenderer::Node::Node(Block& block, LayoutBox& lb,
@@ -170,17 +179,17 @@ double WTextRenderer::render(const WString& text, double y)
 
   try {
 #ifndef WT_TARGET_JAVA
-    rapidxml::xml_document<> doc;
-    doc.parse<rapidxml::parse_xhtml_entity_translation>(cxhtml.get());
+    Wt::rapidxml::xml_document<> doc;
+    doc.parse<Wt::rapidxml::parse_xhtml_entity_translation>(cxhtml.get());
 #else
-    rapidxml::xml_document<> doc = rapidxml::parseXHTML(xhtml);
+    Wt::rapidxml::xml_document<> doc = Wt::rapidxml::parseXHTML(xhtml);
 #endif
 
     Block docBlock(&doc, (Block*)0);
 
     CombinedStyleSheet styles;
     if (styleSheet_)
-      styles.use(styleSheet_);
+      styles.use(styleSheet_, true);
 
     WStringStream ss;
     docBlock.collectStyles(ss);
@@ -257,7 +266,7 @@ double WTextRenderer::render(const WString& text, double y)
     }
 
     return currentPs.y;
-  } catch (rapidxml::parse_error& e) {
+  } catch (Wt::rapidxml::parse_error& e) {
     throw e;
   }
 }

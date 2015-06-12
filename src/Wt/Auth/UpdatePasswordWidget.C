@@ -30,6 +30,9 @@ UpdatePasswordWidget::UpdatePasswordWidget(const User& user,
 			       user.identity(Identity::LoginName));
   registrationModel_->setReadOnly(RegistrationModel::LoginNameField, true);
 
+  if (user.password().empty())
+    authModel_ = 0;
+
   if (authModel_ && authModel_->baseAuth()->emailVerificationEnabled()) {
     /*
      * This is set in the model so that the password checker can take
@@ -56,7 +59,7 @@ UpdatePasswordWidget::UpdatePasswordWidget(const User& user,
     authModel_->configureThrottling(okButton);
 
     WLineEdit *password = resolve<WLineEdit *>(AuthModel::PasswordField);
-    password->setFocus();
+    password->setFocus(true);
   }
 
   updateView(registrationModel_);
@@ -72,7 +75,7 @@ UpdatePasswordWidget::UpdatePasswordWidget(const User& user,
 					       password2, password2Info);
 
   if (!authModel_)
-    password->setFocus();
+    password->setFocus(true);
 
   okButton->clicked().connect(this, &UpdatePasswordWidget::doUpdate);
   cancelButton->clicked().connect(this, &UpdatePasswordWidget::close);

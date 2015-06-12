@@ -57,7 +57,7 @@ IsapiRequest::IsapiRequest(LPEXTENSION_CONTROL_BLOCK ecb,
     // if only used for write)
     if (ecb->ServerSupportFunction(ecb->ConnID, HSE_REQ_IO_COMPLETION,
         &IsapiRequest::completionCallback, 0, (LPDWORD)this)) {
-	  // Note: we don't expect this to happen
+      // Note: we don't expect this to happen
       synchronous_ = false;
     }
   }
@@ -107,7 +107,6 @@ IsapiRequest::IsapiRequest(LPEXTENSION_CONTROL_BLOCK ecb,
   if (!synchronous_) {
     processAsyncRead(0, 0, true);
   } else {
-    // TODO: store in tmp file if too big
     while (bytesToRead_ != 0 && !done) {
       bufferSize_ = sizeof(buffer_);
       if (bytesToRead_ != 0xffffffff && bytesToRead_ < bufferSize_) {
@@ -145,7 +144,8 @@ IsapiRequest::~IsapiRequest()
   if (requestFileName_ != "") {
     unlink(requestFileName_.c_str());
   }
-
+  for (unsigned i = 0; i < strings_.size(); ++i)
+    delete strings_[i];
 }
 
 void WINAPI IsapiRequest::completionCallback(LPEXTENSION_CONTROL_BLOCK lpECB,
@@ -162,13 +162,21 @@ void WINAPI IsapiRequest::completionCallback(LPEXTENSION_CONTROL_BLOCK lpECB,
 
 void IsapiRequest::processAsyncRead(DWORD cbIO, DWORD dwError, bool first)
 {
-  // TODO: spool to a file if the stringstream becomes to big
   // First, queue up the bytes received
   if (bytesToRead_ != 0xffffffff) {
     bytesToRead_ -= cbIO;
   }
   if (cbIO != 0) {
     in_->write(buffer_, cbIO);
+  }
+
+  if (!server_->server()->controller()->requestDataReceived(this,
+    ecb_->cbTotalBytes - bytesToRead_, ecb_->cbTotalBytes)) {
+    setStatus(/*request_entity_too_large*/ 413);
+    good_ = false;
+    in_->seekg(0);
+    server_->pushRequest(this);
+    return;
   }
 
   // Then, read more, if applicable
@@ -325,9 +333,7 @@ void IsapiRequest::writeSync()
         abort();
         server_->log("error")
           << "ISAPI Synchronous Write failed with error " << err;
-        // Note: it would be appropriate to call the callback function here
-        // with a notification that the continuation was aborted.
-        delete this;
+        getAsyncCallback()(Wt::WriteError);
         return;
       }
     }
@@ -381,7 +387,7 @@ void IsapiRequest::writeAsync(DWORD cbIO, DWORD dwError, bool first)
 
   if (error) {
     abort();
-    delete this;
+    getAsyncCallback()(Wt::WriteError);
     return;
   }
 }
@@ -409,7 +415,7 @@ void IsapiRequest::flushDone()
     if (synchronous_) {
       emulateAsync(flushState_);
     } else {
-      getAsyncCallback()();
+      getAsyncCallback()(WriteCompleted);
     }
   }
 }
@@ -447,105 +453,128 @@ void IsapiRequest::setRedirect(const std::string& url)
   header_ << "Location: " << url << "\r\n";
 }
 
-std::string IsapiRequest::headerValue(const std::string& name) const
+const char *IsapiRequest::headerValue(const char *name) const
 {
-  std::string retval = envValue("HEADER_" + name);
-  if (retval == "") {
+  std::string *retval = persistentEnvValue((std::string("HEADER_") + name).c_str());
+  if (retval == 0) {
     std::string hdr = name;
     for (unsigned int i = 0; i < hdr.size(); ++i) {
       if (hdr[i] == '-')
         hdr[i] = '_';
     }
-    retval = envValue("HTTP_" + hdr);
+    retval = persistentEnvValue((std::string("HTTP_") + hdr).c_str());
   }
-  return retval;
+  return retval ? retval->c_str() : 0;
 }
 
-std::string IsapiRequest::envValue(const std::string& hdr) const
+std::string *IsapiRequest::persistentEnvValue(const char *hdr) const
 {
-  std::string name = boost::algorithm::to_upper_copy(hdr);
+  std::string name = boost::algorithm::to_upper_copy(std::string(hdr));
   char buffer[1024];
   DWORD size = sizeof(buffer);
-  if (!ecb_->GetServerVariable(ecb_->ConnID, 
-			       (LPSTR)name.c_str(), 
-			       buffer, &size)) {
-    switch(GetLastError()) {
+  if (!ecb_->GetServerVariable(ecb_->ConnID, (LPSTR)name.c_str(),
+      buffer, &size)) {
+    switch (GetLastError()) {
     case ERROR_INVALID_PARAMETER:
-      return "";
+      return 0;
       break;
     case ERROR_INVALID_INDEX:
-      return "";
+      return 0;
       break;
     case ERROR_INSUFFICIENT_BUFFER:
-      {
-        char *buf = new char[size];
-        std::string retval;
-        if (!ecb_->GetServerVariable(ecb_->ConnID, 
-				     (LPSTR)name.c_str(), 
-				     buf, &size)) {
-          // Give up
-        } else {
-          retval = std::string(buf, buf + size - 1);
-        }
-        delete[] buf;
-        return retval;
+    {
+      char *buf = new char[size];
+      std::string *retval = 0;
+      if (!ecb_->GetServerVariable(ecb_->ConnID,
+        (LPSTR)name.c_str(),
+        buf, &size)) {
+        // Give up
+      } else {
+        retval = new std::string(buf, buf + size - 1);
       }
+      delete[] buf;
+      if (retval != 0)
+        strings_.push_back(retval);
+      return retval;
+    }
       break;
     case ERROR_NO_DATA:
-      return "";
+      return 0;
       break;
     }
-    return "";
+    return 0;
   } else {
-    return std::string(buffer, buffer + size - 1);
+    std::string *retval = new std::string(buffer, buffer + size - 1);
+    strings_.push_back(retval);
+    return retval;
   }
 }
 
-std::string IsapiRequest::scriptName() const {
+const char *IsapiRequest::envValue(const char *hdr) const
+{
+  std::string *retval = persistentEnvValue(hdr);
+  if (retval)
+    return retval->c_str();
+  else
+    return 0;
+}
+
+const std::string &IsapiRequest::scriptName() const {
+  std::string *retval = persistentEnvValue("SCRIPT_NAME");
+  if (!retval)
+    return emptyString_;
   if (entryPoint_) {
-    return envValue("SCRIPT_NAME") + entryPoint_->path();
-  } else {
-    return envValue("SCRIPT_NAME");
+    *retval = *retval + entryPoint_->path();
   }
+  return *retval;
 }
 
-std::string IsapiRequest::serverName() const {
-  return envValue("SERVER_NAME");
+const std::string &IsapiRequest::serverName() const {
+  std::string *retval = persistentEnvValue("SERVER_NAME");
+  return retval ? *retval : emptyString_;
 }
 
-std::string IsapiRequest::requestMethod() const {
-  return envValue("REQUEST_METHOD");
+const char *IsapiRequest::requestMethod() const {
+  std::string *retval = persistentEnvValue("REQUEST_METHOD");
+  return retval ? retval->c_str() : 0;
 }
 
-std::string IsapiRequest::queryString() const {
-  return envValue("QUERY_STRING");
+const std::string &IsapiRequest::queryString() const {
+  std::string *retval = persistentEnvValue("QUERY_STRING");
+  return retval ? *retval : emptyString_;
 }
 
-std::string IsapiRequest::serverPort() const {
-  return envValue("SERVER_PORT");
+const std::string &IsapiRequest::serverPort() const {
+  std::string *retval = persistentEnvValue("SERVER_PORT");
+  return retval ? *retval : emptyString_;
 }
 
-std::string IsapiRequest::pathInfo() const {
+const std::string &IsapiRequest::pathInfo() const {
   if (entryPoint_) {
-    std::string pi = envValue("PATH_INFO");
-    if (pi.size() >= entryPoint_->path().size()) {
+    std::string *pi = persistentEnvValue("PATH_INFO");
+    if (!pi)
+      return emptyString_;
+    if (pi->size() >= entryPoint_->path().size()) {
       // assert(boost::starts_with(pi, entryPoint_->path()))
-      return pi.substr(entryPoint_->path().size());
+      *pi = pi->substr(entryPoint_->path().size());
+      return *pi;
     } else {
-      return pi;
+      return *pi;
     }
   } else {
-    return envValue("PATH_INFO");
+    std::string *retval = persistentEnvValue("PATH_INFO");
+    return retval ? *retval : emptyString_;
   }
 }
 
-std::string IsapiRequest::remoteAddr() const {
-  return envValue("REMOTE_ADDR");
+const std::string &IsapiRequest::remoteAddr() const {
+  std::string *retval = persistentEnvValue("REMOTE_ADDR");
+  return retval ? *retval : emptyString_;
 }
 
-std::string IsapiRequest::urlScheme() const {
-  std::string https = envValue("HTTPS");
-  if (https == "ON" || https == "on")
+const char *IsapiRequest::urlScheme() const {
+  std::string *https = persistentEnvValue("HTTPS");
+  if (*https == "ON" || *https == "on")
     return "https";
   else
     return "http";

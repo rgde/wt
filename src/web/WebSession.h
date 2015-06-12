@@ -9,6 +9,7 @@
 
 #include <string>
 #include <vector>
+#include <deque>
 
 #if defined(WT_THREADED) || defined(WT_TARGET_JAVA)
 #define WT_BOOST_THREADS
@@ -25,6 +26,7 @@
 #include "TimeUtil.h"
 #include "WebRenderer.h"
 #include "WebRequest.h"
+#include "WebController.h"
 
 #include "Wt/WApplication"
 #include "Wt/WEnvironment"
@@ -91,11 +93,12 @@ public:
   void setApplication(WApplication *app);
 
 #ifndef WT_TARGET_JAVA
+  WLogger& logInstance() const;
   WLogEntry log(const std::string& type) const;
 #endif // WT_TARGET_JAVA
 
+  void externalNotify(const WEvent::Impl& e);
   void notify(const WEvent& e);
-  void pushUpdates();
 
   void doRecursiveEventLoop();
 
@@ -173,10 +176,16 @@ public:
 
   class WT_API Handler {
   public:
+    enum LockOption {
+      NoLock,
+      TryLock,
+      TakeLock
+    };
+
     Handler();
     Handler(boost::shared_ptr<WebSession> session,
 	    WebRequest& request, WebResponse& response);
-    Handler(boost::shared_ptr<WebSession> session, bool takeLock);
+    Handler(boost::shared_ptr<WebSession> session, LockOption lockOption);
     Handler(WebSession *session);
     ~Handler();
 
@@ -187,6 +196,7 @@ public:
     static Handler *instance();
 
     bool haveLock() const;
+    void unlock();
 
     void flushResponse();
     WebResponse *response() { return response_; }
@@ -208,6 +218,9 @@ public:
   private:
     void init();
 
+#ifndef WT_TARGET_JAVA
+    boost::shared_ptr<WebSession> sessionPtr_;
+#endif
 #ifdef WT_THREADED
     boost::mutex::scoped_lock lock_;
     boost::thread::id lockOwner_;
@@ -218,9 +231,6 @@ public:
     Handler *prevHandler_;
 
     WebSession *session_;
-#ifndef WT_TARGET_JAVA
-    boost::shared_ptr<WebSession> sessionPtr_;
-#endif
 
     WebRequest *request_;
     WebResponse *response_;
@@ -242,22 +252,27 @@ public:
   void setLoaded();
 
   void generateNewSessionId();
+  void queueEvent(const ApplicationEvent& event);
 
 private:
   void handleWebSocketRequest(Handler& handler);
   static void handleWebSocketMessage(boost::weak_ptr<WebSession> session,
-				     WebRequest::ReadEvent event);
-  static void webSocketReady(boost::weak_ptr<WebSession> session);
+				     WebReadEvent event);
+  static void webSocketReady(boost::weak_ptr<WebSession> session,
+			     WebWriteEvent event);
 
   void checkTimers();
   void hibernate();
 
 #ifdef WT_BOOST_THREADS
   boost::mutex mutex_;
+  boost::mutex eventQueueMutex_;
   static boost::thread_specific_ptr<Handler> threadHandler_;
 #else
   static Handler *threadHandler_;
 #endif
+
+  std::deque<ApplicationEvent> eventQueue_;
 
   EntryPointType type_;
   std::string favicon_;
@@ -272,13 +287,14 @@ private:
   std::string applicationName_;
   std::string bookmarkUrl_, basePath_, absoluteBaseUrl_;
   std::string applicationUrl_, deploymentPath_;
+  std::string docRoot_;
   std::string redirect_;
   std::string pagePathInfo_;
   std::string pongMessage_;
   WebResponse *asyncResponse_, *bootStyleResponse_;
   bool canWriteAsyncResponse_;
   int pollRequestsIgnored_;
-  bool progressiveBoot_, bootStyle_;
+  bool progressiveBoot_;
 
   WebRequest *deferredRequest_;
   WebResponse *deferredResponse_;
@@ -289,9 +305,9 @@ private:
 #endif
 
 #ifdef WT_BOOST_THREADS
-  boost::condition recursiveEvent_;
+  boost::condition recursiveEvent_, recursiveEventDone_;
 #endif
-  bool             newRecursiveEvent_;
+  WEvent::Impl *newRecursiveEvent_;
 
   /* For synchronous handling */
 #ifdef WT_BOOST_THREADS
@@ -307,8 +323,9 @@ private:
   std::vector<Handler *> handlers_;
   std::vector<WObject *> emitStack_;
 
-  Handler *recursiveEventLoop_;
+  Handler *recursiveEventHandler_;
 
+  void pushUpdates();
   WResource *decodeResource(const std::string& resourceId);
   EventSignalBase *decodeSignal(const std::string& signalId,
 				bool checkExposed) const;
@@ -342,32 +359,48 @@ private:
   void flushBootStyleResponse();
   void changeInternalPath(const std::string& path, WebResponse *response);
 
+  void processQueuedEvents(WebSession::Handler& handler);
+  ApplicationEvent popQueuedEvent();
+
   friend class WebSocketMessage;
   friend class WebRenderer;
 };
 
 struct WEvent::Impl {
   WebSession::Handler *handler;
-#ifndef WT_CNOR
-  boost::function<void ()> function;
-#endif
+  WebResponse *response;
+  Function function;
   bool renderOnly;
 
   Impl(WebSession::Handler *aHandler, bool doRenderOnly = false)
     : handler(aHandler),
+      response(0),
       renderOnly(doRenderOnly)
   { }
 
-#ifndef WT_CNOR
-  Impl(WebSession::Handler *aHandler, const boost::function<void ()>& aFunction)
+  Impl(WebSession::Handler *aHandler, const Function& aFunction)
     : handler(aHandler),
+      response(0),
       function(aFunction),
       renderOnly(false)
   { }
-#endif
+
+  Impl(const Impl& other)
+    : handler(other.handler),
+      response(other.response),
+      function(other.function),
+      renderOnly(other.renderOnly)
+  { }
+
+  Impl(WebResponse *aResponse)
+    : handler(0),
+      response(aResponse),
+      renderOnly(true)
+  { }
 
   Impl()
-    : handler(0)
+    : handler(0),
+      response(0)
   { }
 };
 

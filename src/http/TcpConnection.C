@@ -42,6 +42,7 @@ void TcpConnection::stop()
   LOG_DEBUG(socket().native() << ": stop()");
 
   finishReply();
+
   try {
     boost::system::error_code ignored_ec;
     socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
@@ -50,13 +51,15 @@ void TcpConnection::stop()
   } catch (asio_system_error& e) {
     LOG_DEBUG(socket().native() << ": error " << e.what());
   }
+
+  Connection::stop();
 }
 
 void TcpConnection::startAsyncReadRequest(Buffer& buffer, int timeout)
 {
   LOG_DEBUG(socket().native() << ": startAsyncReadRequest");
 
-  if (state_ != Idle) {
+  if (state_ & Reading) {
     stop();
     return;
   }
@@ -67,17 +70,18 @@ void TcpConnection::startAsyncReadRequest(Buffer& buffer, int timeout)
     = boost::dynamic_pointer_cast<TcpConnection>(shared_from_this());
   socket_.async_read_some(asio::buffer(buffer),
 			  strand_.wrap
-			  (boost::bind(&Connection::handleReadRequest,
+			  (boost::bind(&TcpConnection::handleReadRequest,
 				       sft,
 				       asio::placeholders::error,
 				       asio::placeholders::bytes_transferred)));
 }
 
-void TcpConnection::startAsyncReadBody(Buffer& buffer, int timeout)
+void TcpConnection::startAsyncReadBody(ReplyPtr reply,
+				       Buffer& buffer, int timeout)
 {
   LOG_DEBUG(socket().native() << ": startAsyncReadBody");
 
-  if (state_ != Idle) {
+  if (state_ & Reading) {
     LOG_DEBUG(socket().native() << ": state_ = " << state_);
     stop();
     return;
@@ -89,19 +93,21 @@ void TcpConnection::startAsyncReadBody(Buffer& buffer, int timeout)
     = boost::dynamic_pointer_cast<TcpConnection>(shared_from_this());
   socket_.async_read_some(asio::buffer(buffer),
 			  strand_.wrap
-			  (boost::bind(&Connection::handleReadBody,
+			  (boost::bind(&TcpConnection::handleReadBody,
 				       sft,
+				       reply,
 				       asio::placeholders::error,
 				       asio::placeholders::bytes_transferred)));
 }
 
 void TcpConnection::startAsyncWriteResponse
-    (const std::vector<asio::const_buffer>& buffers,
-     int timeout)
+     (ReplyPtr reply,
+      const std::vector<asio::const_buffer>& buffers,
+      int timeout)
 {
   LOG_DEBUG(socket().native() << ": startAsyncWriteResponse");
 
-  if (state_ != Idle) {
+  if (state_ & Writing) {
     LOG_DEBUG(socket().native() << ": state_ = " << state_);
     stop();
     return;
@@ -113,8 +119,9 @@ void TcpConnection::startAsyncWriteResponse
     = boost::dynamic_pointer_cast<TcpConnection>(shared_from_this());
   asio::async_write(socket_, buffers,
 		    strand_.wrap
-		    (boost::bind(&Connection::handleWriteResponse,
+		    (boost::bind(&TcpConnection::handleWriteResponse,
 				 sft,
+				 reply,
 				 asio::placeholders::error,
 				 asio::placeholders::bytes_transferred)));
 }

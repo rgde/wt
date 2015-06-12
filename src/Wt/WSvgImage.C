@@ -4,6 +4,7 @@
  * See the LICENSE file for terms of use.
  */
 
+#include "Wt/WApplication"
 #include "Wt/WFontMetrics"
 #include "Wt/WPainter"
 #include "Wt/WPainterPath"
@@ -14,6 +15,7 @@
 #include "Wt/Http/Response"
 
 #include "WebUtils.h"
+#include "ServerSideFontMetrics.h"
 
 #include <cmath>
 #include <boost/lexical_cast.hpp>
@@ -59,17 +61,22 @@ WSvgImage::WSvgImage(const WLength& width, const WLength& height,
     currentFillGradientId_(-1),
     currentStrokeGradientId_(-1),
     currentShadowId_(-1),
-    nextShadowId_(0)
+    nextShadowId_(0),
+    fontMetrics_(0)
 { }
 
 WSvgImage::~WSvgImage()
 {
   beingDeleted();
+  delete fontMetrics_;
 }
 
 WFlags<WPaintDevice::FeatureFlag> WSvgImage::features() const
 {
-  return CanWordWrap; // Actually, only when outputting to inkscape ...
+  if (ServerSideFontMetrics::available())
+    return HasFontMetrics | CanWordWrap;
+  else
+    return CanWordWrap; // Actually, only when outputting to inkscape ...
 }
 
 void WSvgImage::init()
@@ -489,12 +496,17 @@ void WSvgImage::drawPath(const WPainterPath& path)
   drawPlainPath(shapes_, path);
 }
 
-void WSvgImage::drawImage(const WRectF& rect, const std::string& imageUri,
+void WSvgImage::drawImage(const WRectF& rect, const std::string& imgUri,
 			  int imgWidth, int imgHeight,
 			  const WRectF& srect)
 {
   finishPath();
   makeNewGroup();
+
+  WApplication *app = WApplication::instance();
+  std::string imageUri;
+  if (app)
+    imageUri = app->resolveRelativeUrl(imgUri);
 
   WRectF drect = rect;
 
@@ -695,12 +707,18 @@ void WSvgImage::drawText(const WRectF& rect,
 WTextItem WSvgImage::measureText(const WString& text, double maxWidth,
 				 bool wordWrap)
 {
-  throw WException("WSvgImage::measureText() not supported");
+  if (!fontMetrics_)
+    fontMetrics_ = new ServerSideFontMetrics();
+
+  return fontMetrics_->measureText(painter()->font(), text, maxWidth, wordWrap);
 }
 
 WFontMetrics WSvgImage::fontMetrics()
 {
-  throw WException("WSvgImage::fontMetrics() not supported");
+  if (!fontMetrics_)
+    fontMetrics_ = new ServerSideFontMetrics();
+
+  return fontMetrics_->fontMetrics(painter()->font());
 }
 
 std::string WSvgImage::quote(const std::string& s)

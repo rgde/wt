@@ -9,8 +9,9 @@
 
 #include <string.h>
 
+#include "Wt/WConfig.h" // WT_WIN32
 // for htonl():
-#ifndef WIN32
+#ifndef WT_WIN32
 #include <arpa/inet.h>
 #else
 #include <winsock2.h>
@@ -204,5 +205,13 @@ std::string guessImageMimeType(const std::string& file)
   return Wt::ImageUtils::identifyMimeType(file);
 }
   
-  }
+
+std::string createDataUrl(std::vector<unsigned char>& data, std::string mimeType){
+  std::string url = "data:"+mimeType+";"+"base64,";
+  std::string datab64 = base64Encode(std::string(data.begin(), data.end()));
+  return url+datab64;
+}
+
+}
+
 }

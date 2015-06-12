@@ -22,11 +22,6 @@ class UserFormModel : public Wt::WFormModel
 {
 public:
     // Associate each field with a unique string literal.
-    // With C++11 you can actually put these directly inside the
-    // UserFormModel class like this:
-    //
-    //   static constexpr Field FirstNameField = "first-name";
-  
     static const Field FirstNameField;
     static const Field LastNameField;
     static const Field CountryField;
@@ -270,6 +265,7 @@ public:
 
         setTemplateText(tr("userForm-template"));
         addFunction("id", &WTemplate::Functions::id);
+        addFunction("block", &WTemplate::Functions::id);
 
         /*
 	 * First Name
@@ -371,7 +367,7 @@ private:
             // Set the focus on the first field in the form.
             Wt::WLineEdit *viewField =
                     resolve<Wt::WLineEdit*>(UserFormModel::FirstNameField);
-            viewField->setFocus();
+            viewField->setFocus(true);
         } else {
             bindEmpty("submit-info"); // Delete the previous user data.
             updateView(model);
@@ -379,7 +375,6 @@ private:
     }
 
     UserFormModel *model;
-    Wt::WComboBox *cityCB;
 };
 
 SAMPLE_BEGIN(FormModel)

@@ -12,13 +12,13 @@ LINK_DIRECTORIES(${BOOST_LIB_DIRS})
 
 MACRO (FILE_TO_STRING infile outfile var)
 ADD_CUSTOM_COMMAND(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${outfile}
-	           COMMAND ${CMAKE_COMMAND}
+               COMMAND ${CMAKE_COMMAND}
                    ARGS -Dinfile:FILEPATH=${CMAKE_CURRENT_SOURCE_DIR}/${infile}
                         -Doutfile:FILEPATH=${CMAKE_CURRENT_BINARY_DIR}/${outfile}
                         -Dvar:STRING=${var}
                         -P ${CMAKE_CURRENT_SOURCE_DIR}/filetostring.cmake
-		   MAIN_DEPENDENCY
-		        ${CMAKE_CURRENT_SOURCE_DIR}/${infile}
+           MAIN_DEPENDENCY
+                ${CMAKE_CURRENT_SOURCE_DIR}/${infile}
 )
 ENDMACRO (FILE_TO_STRING)
 
@@ -42,14 +42,17 @@ FILE_TO_STRING(web/skeleton/jquery.min.js JQuery_js.C JQuery_js)
 
 FILE_TO_STRING(xml/wt.xml Wt_xml.C Wt_xml)
 FILE_TO_STRING(xml/auth_strings.xml AuthStrings_xml.C AuthStrings_xml)
-FILE_TO_STRING(xml/auth_bootstrap_theme.xml
-	AuthBootstrapTheme_xml.C AuthBootstrapTheme_xml)
+FILE_TO_STRING(xml/bootstrap_theme.xml
+    BootstrapTheme_xml.C BootstrapTheme_xml)
+FILE_TO_STRING(xml/bootstrap3_theme.xml
+    Bootstrap3Theme_xml.C Bootstrap3Theme_xml)
 FILE_TO_STRING(xml/auth_css_theme.xml
-	AuthCssTheme_xml.C AuthCssTheme_xml)
+    AuthCssTheme_xml.C AuthCssTheme_xml)
 
 SET(libsources
 Wt/PopupWindow.C
 Wt/Resizable.C
+Wt/ServerSideFontMetrics.C
 Wt/SizeHandle.C
 Wt/StdGridLayoutImpl2.C
 Wt/StdLayoutImpl.C
@@ -115,6 +118,8 @@ Wt/WFontMetrics.C
 Wt/WFormModel.C
 Wt/WFormWidget.C
 Wt/WGLWidget.C
+Wt/WAbstractGLImplementation.C
+Wt/WClientGLWidget.C
 Wt/WGoogleMap.C
 Wt/WGradient.C
 Wt/WGridLayout.C
@@ -129,6 +134,7 @@ Wt/WInteractWidget.C
 Wt/WIOService.C
 Wt/WLocale.C
 Wt/WLocalDateTime.C
+Wt/WIdentityProxyModel.C
 Wt/WItemDelegate.C
 Wt/WItemSelectionModel.C
 Wt/WJavaScript.C
@@ -147,6 +153,7 @@ Wt/WLoadingIndicator.C
 Wt/WLocalizedStrings.C
 Wt/WLogger.C
 Wt/WMatrix4x4.C
+Wt/WMeasurePaintDevice.C
 Wt/WMediaPlayer.C
 Wt/WMemoryResource.C
 Wt/WMenu.C
@@ -217,8 +224,11 @@ Wt/WTextArea.C
 Wt/WTextEdit.C
 Wt/WTheme.C
 Wt/WTime.C
+Wt/WTimeEdit.C
 Wt/WTimer.C
 Wt/WTimerWidget.C
+Wt/WTimePicker.C
+Wt/WTimeValidator.C
 Wt/WToolBar.C
 Wt/WTransform.C
 Wt/WTree.C
@@ -229,6 +239,8 @@ Wt/WTreeView.C
 Wt/WValidationStatus.C
 Wt/WValidator.C
 Wt/WVBoxLayout.C
+Wt/WVector3.C
+Wt/WVector4.C
 Wt/WVectorImage.C
 Wt/WVideo.C
 Wt/WVmlImage.C
@@ -268,9 +280,21 @@ Wt/Chart/WAxis.C
 Wt/Chart/WDataSeries.C
 Wt/Chart/WPieChart.C
 Wt/Chart/WCartesianChart.C
-Wt/Chart/WChart2DRenderer.C
+Wt/Chart/WCartesian3DChart.C
+Wt/Chart/WAbstractChartImplementation.C
+Wt/Chart/WChart2DImplementation.C
+Wt/Chart/WChart3DImplementation.C
 Wt/Chart/WChartPalette.C
 Wt/Chart/WStandardPalette.C
+Wt/Chart/WStandardColorMap.C
+Wt/Chart/WLegend.C
+Wt/Chart/WLegend3D.C
+Wt/Chart/WAbstractDataSeries3D.C
+Wt/Chart/WAbstractGridData.C
+Wt/Chart/WGridData.C
+Wt/Chart/WEquidistantGridData.C
+Wt/Chart/WScatterData.C
+Wt/Chart/WSelection.C
 Wt/Json/Array.C
 Wt/Json/Object.C
 Wt/Json/Parser.C
@@ -337,7 +361,8 @@ Boot_js.C
 Wt_js.C
 Wt_xml.C
 AuthStrings_xml.C
-AuthBootstrapTheme_xml.C
+BootstrapTheme_xml.C
+Bootstrap3Theme_xml.C
 AuthCssTheme_xml.C
 JQuery_js.C
 )
@@ -366,6 +391,17 @@ ELSEIF("${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "skia")
   SET(libsources ${libsources} Wt/WRasterImage-skia.C)
 ENDIF("${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "GraphicsMagick")
 
+IF(HAVE_GL)
+  SET(libsources ${libsources} Wt/WServerGLWidget.C)
+  IF(NOT USE_SYSTEM_GLEW)
+    ADD_DEFINITIONS(-DGLEW_STATIC)
+    SET(libsources
+      ${libsources}
+      3rdparty/glew-1.10.0/src/glew.c
+    )
+  ENDIF(NOT USE_SYSTEM_GLEW)
+ENDIF(HAVE_GL)
+
 IF(HAVE_HARU OR "${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "GraphicsMagick")
   IF(HAVE_PANGO)
     SET(libsources ${libsources} Wt/FontSupportPango.C)
@@ -391,6 +427,14 @@ IF(RT_required)
   SET(RT_LIBRARY "rt")
 ENDIF(RT_required)
 
+IF(WIN32)
+  IF(SHARED_LIBS)
+    CONFIGURE_FILE(Wt/wt-version.rc.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/wt-version.rc)
+    SET(libsources ${libsources} ${CMAKE_CURRENT_BINARY_DIR}/wt-version.rc)
+  ENDIF(SHARED_LIBS)
+ENDIF(WIN32)
+
 ADD_LIBRARY(wt ${libsources})
 TARGET_LINK_LIBRARIES(wt
     ${BOOST_WT_LIBRARIES}
@@ -399,28 +443,32 @@ TARGET_LINK_LIBRARIES(wt
     ${RT_LIBRARY}
     )
 
-ADD_LIBRARY(wttest
-  Wt/Test/WTestEnvironment.C
-)
+IF(ENABLE_LIBWTTEST)
+  ADD_LIBRARY(wttest
+    Wt/Test/WTestEnvironment.C
+  )
 
-TARGET_LINK_LIBRARIES(wttest wt)
+  TARGET_LINK_LIBRARIES(wttest wt)
 
-INSTALL(TARGETS wttest
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION ${LIB_INSTALL_DIR}
-    ARCHIVE DESTINATION ${LIB_INSTALL_DIR})
+  INSTALL(TARGETS wttest
+	  RUNTIME DESTINATION bin
+	  LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+	  ARCHIVE DESTINATION ${LIB_INSTALL_DIR})
 
-IF(MSVC)
-  SET_TARGET_PROPERTIES(wttest PROPERTIES COMPILE_FLAGS "${BUILD_PARALLEL} /wd4251 /wd4275 /wd4355 /wd4800 /wd4996 /wd4101 /wd4267")
-ENDIF(MSVC)
+  IF(MSVC)
+    SET_TARGET_PROPERTIES(wttest PROPERTIES COMPILE_FLAGS "${BUILD_PARALLEL} /wd4251 /wd4275 /wd4355 /wd4800 /wd4996 /wd4101 /wd4267")
+  ENDIF(MSVC)
 
-SET_TARGET_PROPERTIES(
-  wttest
-PROPERTIES
-  VERSION ${VERSION_SERIES}.${VERSION_MAJOR}.${VERSION_MINOR}
-  SOVERSION ${WTTEST_SOVERSION}
-  DEBUG_POSTFIX ${DEBUG_LIB_POSTFIX}
-)
+  SET_TARGET_PROPERTIES(
+    wttest
+  PROPERTIES
+    VERSION ${VERSION_SERIES}.${VERSION_MAJOR}.${VERSION_MINOR}
+    SOVERSION ${WTTEST_SOVERSION}
+    DEBUG_POSTFIX ${DEBUG_LIB_POSTFIX}
+  )
+ELSE(ENABLE_LIBWTTEST)
+  MESSAGE("** Not building libwttest")
+ENDIF(ENABLE_LIBWTTEST)
 
 IF(HAVE_SSL)
   TARGET_LINK_LIBRARIES(wt ${SSL_LIBRARIES})
@@ -449,9 +497,20 @@ IF("${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "GraphicsMagick")
 ELSEIF("${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "skia")
   TARGET_LINK_LIBRARIES(wt ${SKIA_LIBRARIES})
   INCLUDE_DIRECTORIES(${SKIA_INCLUDE_DIRS})
+  ADD_DEFINITIONS(${SKIA_DEFINES})
 ELSE("${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "GraphicsMagick")
   MESSAGE("** Disabling raster image support (WRasterImage): set WT_WRASTERIMAGE_IMPLEMENTATION to GraphicsMagick or skia.")
 ENDIF("${WT_WRASTERIMAGE_IMPLEMENTATION}" STREQUAL "GraphicsMagick")
+
+IF(HAVE_GL)
+  INCLUDE_DIRECTORIES(${GL_INCLUDE_DIRS})
+  IF(USE_SYSTEM_GLEW)
+    TARGET_LINK_LIBRARIES(wt GLEW)
+  ENDIF(USE_SYSTEM_GLEW)
+  TARGET_LINK_LIBRARIES(wt ${GL_LIBRARIES})
+ELSE(HAVE_GL)
+  MESSAGE("** Disabling server-side opengl rendering for WGLWidget: requires gl, glew and WRasterImage (GraphicsMagick or skia).")
+ENDIF(HAVE_GL)
 
 IF(HAVE_PANGO)
   TARGET_LINK_LIBRARIES(wt ${PANGO_FT2_LIBRARIES})

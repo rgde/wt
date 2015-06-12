@@ -71,7 +71,7 @@ struct WServer::Impl
     } catch (...) {
       LOG_ERROR_S(&server_,
 		  "fatal: dedicated session process for " << sessionId_ <<
-		  ": caught unkown, unhandled exception.");
+		  ": caught unknown, unhandled exception.");
 
       throw;
     }
@@ -148,11 +148,24 @@ WServer::WServer(const std::string& applicationPath,
   init(applicationPath, wtConfigurationFile);
 }
 
+WServer::WServer(int argc, char *argv[], const std::string& wtConfigurationFile)
+  : impl_(new Impl(*this))
+{
+  init(argv[0], "");
+
+  setServerConfiguration(argc, argv, wtConfigurationFile);
+}
+
 WServer::~WServer()
 {
   delete impl_;
 
   destroy();
+}
+
+std::vector<WServer::SessionInfo> WServer::sessions() const
+{
+  return std::vector<WServer::SessionInfo>();
 }
 
 void WServer::setServerConfiguration(int argc, char *argv[],
@@ -218,6 +231,14 @@ void WServer::stop()
   if (!isRunning()) {
     LOG_ERROR_S(this, "stop(): server not yet started!");
     return;
+  }
+}
+
+void WServer::run()
+{
+  if (start()) {
+    waitForShutdown();
+    stop();
   }
 }
 

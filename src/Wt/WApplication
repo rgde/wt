@@ -35,7 +35,6 @@ namespace boost {
 namespace Wt {
 
 #ifndef WT_TARGET_JAVA
-#define WT_INCLUDED_VERSION Wt##WT_VERSION
 /*
  * Symbols used to check that included version matches library version
  * against which you link.
@@ -72,6 +71,26 @@ class SoundManager;
  */
 typedef boost::function<WApplication* (const WEnvironment&)> ApplicationCreator;
 #endif // !WT_TARGET_JAVA
+
+#ifdef WT_TARGET_JAVA
+/*! \brief An HTML Meta Header
+ */
+#endif // WT_TARGET_JAVA
+class MetaHeader {
+public:
+  /*! \brief Constructor
+   *
+   * Creates a meta header. The lang and user agents are optional, and should
+   * be an empty string if not used.
+   */
+  MetaHeader(MetaHeaderType type, const std::string& name,
+	     const WString& content, const std::string& lang,
+	     const std::string& userAgent);
+  
+  MetaHeaderType type;
+  std::string name, lang, userAgent;
+  WString content;
+};
 
 /*! \class WApplication Wt/WApplication Wt/WApplication
  *  \brief Represents an application instance for a single session.
@@ -146,7 +165,7 @@ typedef boost::function<WApplication* (const WEnvironment&)> ApplicationCreator;
  *
  * Throughout the session, the instance is available through
  * WApplication::instance() (or through #wApp). The application may be
- * quited either using the method quit(), or because of a timeout
+ * exited either using the method quit(), or because of a timeout
  * after the user has closed the window, but not because the user does
  * not interact: keep-alive messages in the background will keep the
  * session around as long as the user has the page opened. In either
@@ -158,7 +177,7 @@ typedef boost::function<WApplication* (const WEnvironment&)> ApplicationCreator;
  * Throughout the session, the instance is available through the
  * static method WApplication::instance(), which uses thread-specific
  * storage to keep track of the current session. The application may
- * be quited either using the method quit(), or because of a timeout
+ * be exited either using the method quit(), or because of a timeout
  * after the user has closed the window, but not because the user does
  * not interact: keep-alive messages in the background will keep the
  * session around as long as the user has the page opened.
@@ -347,6 +366,7 @@ public:
    * External stylesheets are inserted after the internal style sheet,
    * and can therefore override default styles set by widgets in the
    * internal style sheet.
+   * External stylesheets must have valid link.
    *
    * If not empty, \p condition is a string that is used to apply the
    * stylesheet to specific versions of IE. Only a limited subset of
@@ -358,11 +378,19 @@ public:
    * - "!IE gte 6": only for IE versions prior to IE6.
    * - "IE lte 7": only for IE versions prior to IE7.
    *
-   * \sa styleSheet(), useStyleSheet(const std::string&, const std::string&)
+   * \sa styleSheet(), useStyleSheet(const std::string&, const std::string&),
+   *  removeStyleSheet(const WLink& link)
    * \sa WWidget::setStyleClass()
    */
   void useStyleSheet(const WCssStyleSheet& styleSheet,
 		     const std::string& condition = "");
+
+  /*! \brief Removes an external stylesheet.
+   *
+   * \sa styleSheet(), useStyleSheet(const std::string&, const std::string&)
+   * \sa WWidget::setStyleClass()
+   */
+  void removeStyleSheet(const WLink& link);
 
   /*! \brief Sets the theme.
    *
@@ -528,7 +556,7 @@ public:
    * files that are used to lookup localized strings.
    *
    * The default localizedStrings() is a WMessageResourceBundle
-   * object, and this method returns localizedStrings() upcasted to
+   * object, and this method returns localizedStrings() downcasted to
    * this type.
    *
    * \sa WString::tr(const char *key)
@@ -559,7 +587,7 @@ public:
 
   /*! \brief Returns the current locale.
    *
-   * \sa setLocale(const std::string&)
+   * \sa setLocale(const WLocale&)
    */
   const WLocale& locale() const { return locale_; }
 
@@ -921,6 +949,8 @@ public:
    */
   Signal<std::string>& internalPathChanged();
 
+  /*! \brief %Signal which indicates that an invalid internal path is navigated.
+   */
   Signal<std::string>& internalPathInvalid() { return internalPathInvalid_; }
 
   /*! \brief Redirects the application to another location.
@@ -1007,6 +1037,20 @@ public:
    * \sa appRoot()
    */
   std::string docRoot() const;
+
+  /*! \brief Sets the connection monitor which will receive client side information
+   * In order to be notified, the jsObject must define a function onChange(type, oldValue, newValue) which
+   * will be called every time the status changes.
+   * The status can be retrieved in the monitor by accessing the following variables:
+   * - monitor.status.connectionStatus : 
+   *	- 0 : disconnected from server
+   *	- 1 : connected to server
+   * - monitor.status.websocket :
+   *	- true: websocket is used
+   *	- false: websocket is not used
+   */
+  void setConnectionMonitor(const std::string& jsFunction);
+
 #else
   static std::string appRoot();
 #endif // WT_TARGET_JAVA
@@ -1331,7 +1375,10 @@ public:
    * returns immediately. The JavaScript will be run after the normal
    * event handling, unless \p afterLoaded is set to \c false.
    *
-   * \sa addAutoJavaScript(), declareJavaScriptFunction()
+   * In most situations, it's more robust to use
+   * WWidget::doJavaScript() however.
+   *
+   * \sa WWidget::doJavaScript(), declareJavaScriptFunction()
    */
   void doJavaScript(const std::string& javascript, bool afterLoaded = true);
 
@@ -1439,6 +1486,18 @@ public:
    * scalability.
    */
   void processEvents();
+
+  /*! \brief Blocks the thread, waiting for an UI event.
+   *
+   * This function is used by functions like WDialog::exec() or
+   * WPopupMenu::exec(), to block the current thread waiting for a new
+   * event.
+   *
+   * This requires that at least one additional thread is available to
+   * process incoming requests, and is not scalable when working with
+   * a fixed size thread pools.
+   */
+  virtual void waitForEvent();
 
 #ifndef WT_TARGET_JAVA
   /*! \brief Reads a configuration property.
@@ -1628,33 +1687,36 @@ public:
 
   /*! \brief Adds an HTML meta header.
    *
-   * A meta header can only be added in the following situations:
-   *
-   * - when a plain HTML session is used (including when the user agent is a
-   *   bot), you can add meta headers at any time.
-   *
-   * - or, when \ref progressive_bootstrap "progressive bootstrap" is
-   *   used, you can set meta headers for any type of session, from
-   *   within the application constructor (which corresponds to the
-   *   initial request).
-   *
-   * - but never for a Wt::WidgetSet mode application since then the
-   *   application is hosted within a foreign HTML page.
-   *
-   * When a header was previously set for the same \p name, its
-   * contents is replaced.
-   *
-   * These situations coincide with WEnvironment::ajax()
-   * returning \c false (see environment()).
+   * \sa addMetaHeader(MetaHeaderType, const std::string&, const WString&, const std::string&)
    */
   void addMetaHeader(const std::string& name, const WString& content,
 		     const std::string& lang = "");
 
   /*! \brief Adds an HTML meta header.
    *
-   * This overloaded method allows to define both "name" meta headers,
-   * relating to document properties as well as "http-equiv" meta
-   * headers, which define HTTP headers.
+   * This method sets either a "name" meta headers, which configures a
+   * document property, or a "http-equiv" meta headers, which defines
+   * a HTTP headers (but these latter headers are being deprecated).
+   *
+   * A meta header can however only be added in the following situations:
+   *
+   * - when a plain HTML session is used (including when the user agent is a
+   *   bot), you can add meta headers at any time.
+   * - or, when \ref progressive_bootstrap "progressive bootstrap" is
+   *   used, you can set meta headers for any type of session, from
+   *   within the application constructor (which corresponds to the
+   *   initial request).
+   * - but never for a Wt::WidgetSet mode application since then the
+   *   application is hosted within a foreign HTML page.
+   *
+   * These situations coincide with WEnvironment::ajax() returning \c
+   * false (see environment()). The reason that it other cases the
+   * HTML page has already been rendered, and will not be rerendered
+   * since all updates are done dynamically.
+   *
+   * As an alternative, you can use the &lt;meta-headers&gt;
+   * configuration property in the configuration file, which will be
+   * applied in all circumstances.
    *
    * \sa removeMetaHeader()
    */
@@ -1727,6 +1789,15 @@ public:
 
   /*! \brief Quits the application.
    *
+   * This quits the application with a default restart message resolved
+   * as WString::tr("Wt.QuittedMessage").
+   *
+   * \sa quit(const WString&)
+   */
+  void quit();
+
+  /*! \brief Quits the application.
+   *
    * The method returns immediately, but has as effect that the
    * application will be terminated after the current event is
    * completed.
@@ -1735,14 +1806,13 @@ public:
    * pending and applied during the current event handling) will still
    * be rendered, after which the application is terminated.
    *
-   * You might want to make sure no more events can be received from
-   * the user, by not having anything clickable, for example by
-   * displaying only text. Even better is to redirect() the user to
-   * another, static, page in conjunction with %quit().
+   * If the restart message is not empty, then the user will be
+   * offered to restart the application (using the provided message)
+   * when further interacting with the application.
    *
    * \sa redirect()
    */
-  void quit();
+  void quit(const WString& restartMessage);
 
   /*! \brief Returns whether the application has quit. (<b>deprecated</b>)
    *
@@ -1750,13 +1820,13 @@ public:
    *
    * \deprecated hasQuit() is proper English
    */
-  bool isQuited() const { return quited_; }
+  bool isQuited() const { return quitted_; }
 
   /*! \brief Returns whether the application has quit.
    *
    * \sa quit()
    */
-  bool hasQuit() const { return quited_; }
+  bool hasQuit() const { return quitted_; }
 
   /*! \brief Returns the current maximum size of a request to the
    *         application.
@@ -1884,6 +1954,8 @@ public:
    */
   void setConfirmCloseMessage(const WString& message);
 
+  /*! \brief Sets the message for the user when the application was .
+   */
   void enableInternalPaths();
 
   // should we move this into an InternalPaths utility class / namespace ?
@@ -2078,6 +2150,13 @@ protected:
    */
   virtual void unload();
 
+  /**
+   * @brief handleJavaScriptError print javaScript errors to log file.
+   * You may want to overwrite it to render error page for example.
+   *
+   * @param errorText the error will usually be in json format.
+   */
+  virtual void handleJavaScriptError(const std::string& errorText);
 private:
   Signal< ::int64_t > requestTooLarge_;
 
@@ -2087,15 +2166,6 @@ private:
     std::string uri, symbol, beforeLoadJS;
     bool operator< (const ScriptLibrary& other) const;
     bool operator== (const ScriptLibrary& other) const;
-  };
-
-  struct MetaHeader {
-    MetaHeader(MetaHeaderType type, const std::string& name,
-	       const WString& content, const std::string& lang);
-
-    MetaHeaderType type;
-    std::string name, lang;
-    WString content;
   };
 
   struct MetaLink {
@@ -2133,7 +2203,7 @@ private:
 #endif // WT_CNOR
   WString                title_;
   WString                closeMessage_;
-  bool                   titleChanged_, closeMessageChanged_;
+  bool                   titleChanged_, closeMessageChanged_, localeChanged_;
   WContainerWidget      *widgetRoot_;  // widgets in main DOM root
   WContainerWidget      *domRoot_;     // main DOM root
   WContainerWidget      *domRoot2_;    // other virtual root for WidgetSet mode
@@ -2141,7 +2211,7 @@ private:
   WCssStyleSheet         styleSheet_;  // internal stylesheet
   WCombinedLocalizedStrings *localizedStrings_;
   WLocale                locale_;
-  std::string            oldInternalPath_, newInternalPath_;
+  std::string            renderedInternalPath_, newInternalPath_;
   Signal<std::string>    internalPathChanged_, internalPathInvalid_;
   bool                   internalPathIsChanged_;
   bool                   internalPathDefaultValid_, internalPathValid_;
@@ -2152,7 +2222,8 @@ private:
 #endif // WT_TARGET_JAVA
   std::string            javaScriptClass_;
   AjaxMethod             ajaxMethod_;
-  bool                   quited_;
+  bool                   quitted_;
+  WString                quittedMessage_;
   std::string            onePixelGifUrl_;
   bool                   internalPathsEnabled_;
   WWidget               *exposedOnly_;
@@ -2174,6 +2245,8 @@ private:
 
   const WTheme *theme_;
   std::vector<WCssStyleSheet> styleSheets_;
+  std::vector<WCssStyleSheet> styleSheetsToRemove_;
+
   int styleSheetsAdded_;
 
   std::vector<MetaHeader> metaHeaders_;
@@ -2270,6 +2343,7 @@ private:
   JSlot hideLoadJS;
 #endif
 
+  friend class WCssStyleSheet;
   friend class WebRenderer;
   friend class WebSession;
   friend class WebController;
@@ -2279,7 +2353,6 @@ private:
   friend class WContainerWidget;
   friend class WDialog;
   friend class WFileUpload;
-  friend class WFormWidget;
   friend class WInteractWidget;
   friend class WLineEdit;
   friend class WMenu;
@@ -2290,6 +2363,7 @@ private:
   friend class WTimer;
   friend class WViewWidget;
   friend class WWidget;
+  friend class WWebWidget;
   friend class Ext::Dialog;
   friend class Ext::MessageBox;
 };

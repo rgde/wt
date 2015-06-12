@@ -167,6 +167,8 @@ void collection<C>::iterator::shared_impl::fetchNextRow()
     posPastQuery_++;
     if (posPastQuery_ == collection_.manualModeInsertions().size())
       ended_ = true;
+    else
+      current_ = collection_.manualModeInsertions()[posPastQuery_];
     return;
   }
 
@@ -190,10 +192,7 @@ void collection<C>::iterator::shared_impl::fetchNextRow()
 template <class C>
 typename collection<C>::value_type& collection<C>::iterator::shared_impl::current()
 {
-  if (!queryEnded_)
-    return current_;
-  else
-    return const_cast<collection<C>&>(collection_).manualModeInsertions()[posPastQuery_];
+  return current_;
 }
 
 template <class C>
@@ -426,6 +425,12 @@ C collection<C>::front() const
 }
 
 template <class C>
+bool collection<C>::empty() const
+{
+  return size() == 0;
+}
+
+template <class C>
 typename collection<C>::size_type collection<C>::size() const
 {
   if (type_ == QueryCollection && data_.query->size != -1)
@@ -592,8 +597,18 @@ void collection<C>::clear()
 
   if (relation.dbo) {
     const std::string *sql = relation.sql;
-    std::size_t f = Impl::ifind(*sql, " from ");
-    std::string deleteSql = "delete" + sql->substr(f);
+    std::string deleteSql;
+
+    if (relation.setInfo->type == ManyToMany) {
+      std::size_t o = Impl::ifind(*sql, " on ");
+      std::size_t j = Impl::ifind(*sql, " join ");
+      std::size_t w = Impl::ifind(*sql, " where ");
+      deleteSql = "delete from " + sql->substr(j + 5, o - j - 5)
+	+ sql->substr(w);
+    } else {
+      std::size_t f = Impl::ifind(*sql, " from ");
+      deleteSql = "delete" + sql->substr(f);
+    }
 
     Call call = session_->execute(deleteSql);
     int column = 0;
@@ -616,10 +631,13 @@ int collection<C>::count(C c) const
 
   if (type_ != RelationCollection)
     throw Exception("collection<C>::count() only for a relational "
-			     "relation.");
+		    "relation.");
+
+  if (!c)
+    return 0;
 
   const RelationData& relation = data_.relation;
-  Session::MappingInfo *mapping
+  Impl::MappingInfo *mapping
     = session_->getMapping(relation.setInfo->tableName); 
 
   Query<C, DynamicBinding> q = find().where(mapping->idCondition);
@@ -644,7 +662,7 @@ void collection<C>::resetActivity()
 template <class C>
 void collection<C>::setRelationData(MetaDboBase *dbo,
 				    const std::string *sql,
-				    Session::SetInfo *setInfo)
+				    Impl::SetInfo *setInfo)
 {
   session_ = dbo->session();
 

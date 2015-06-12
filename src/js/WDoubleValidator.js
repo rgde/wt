@@ -12,10 +12,17 @@
 
 WT_DECLARE_WT_MEMBER
 (1, JavaScriptConstructor, "WDoubleValidator",
-   function(mandatory, bottom, top, decimalPoint, groupSeparator, blankError,
+   function(mandatory, ignoreTrailingSpaces, bottom, top, decimalPoint, groupSeparator, blankError,
 	    NaNError, tooSmallError, tooLargeError) {
      this.validate = function(text) {
        text = String(text);
+	   
+	   if (ignoreTrailingSpaces) 
+		 text = text.trim();
+
+       function toRegexp(value) {
+	  return value.replace(new RegExp("([\\^\\\\\\][\\-.$*+?()|{}])","g"), "\\$1");
+       }
 
        if (text.length == 0)
 	 if (mandatory)
@@ -24,9 +31,12 @@ WT_DECLARE_WT_MEMBER
 	   return { valid: true };
 
        if (groupSeparator != '')
-	 text = text.replace(groupSeparator, '');
+	 text = text.replace(new RegExp(toRegexp(groupSeparator), 'g'), '');
        if (decimalPoint != '.')
 	 text = text.replace(decimalPoint, '.');
+
+	   if(text.indexOf(' ') >= 0 && !ignoreTrailingSpaces)
+		 return { valid: false, message: NaNError };
 
        var n = Number(text);
 

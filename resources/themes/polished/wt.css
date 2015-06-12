@@ -250,7 +250,7 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
     margin: 2px;
 }
 
-.Wt-dialog .titlebar h3 {
+.Wt-dialog .titlebar h4 {
     margin: 0px 2px;
     font-size: 110%;
 }
@@ -271,6 +271,7 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
 }
 
 .Wt-dialog .Wt-msgbox-text {
+    overflow: auto;
 }
 
 /*
@@ -366,12 +367,9 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
     margin: 0;
 }
 
-.Wt-popupmenu li {
-    padding: 2px 10px;
-}
-
 .Wt-popupmenu li a {
     display: block;
+    padding: 2px 10px;
 }
 
 .Wt-popupmenu .Wt-padded {
@@ -471,6 +469,12 @@ span.Wt-disabled, fieldset.Wt-disabled legend {
 
 .Wt-btn:active {
     border: 1px inset #CCC;
+}
+
+.Wt-btn[disabled] {
+    border: 1px outset #CCC;
+    cursor: not-allowed;
+    opacity: 0.75;
 }
 
 .Wt-btn-default {
@@ -761,6 +765,11 @@ body.Wt-rtl .Wt-tabs li {
     list-style: none;
 }
 
+body.Wt-rtl .Wt-tree ul {
+    padding-right: 20px;
+    padding-left: 0px;
+}
+
 /* nodes */
 
 .Wt-tree div.Wt-root {
@@ -771,11 +780,19 @@ body.Wt-rtl .Wt-tabs li {
     padding-left: 0px;
 }
 
+body.Wt-rtl .Wt-tree ul.Wt-root {
+    padding-right: 0px;
+}
+
 .Wt-tree .Wt-ctrl {
     float: left;
     display: block;
     width: 19px;
-    height: 18px;
+    height: 17px;
+}
+
+body.Wt-rtl .Wt-tree .Wt-ctrl {
+    float: right;
 }
 
 .Wt-treetable {
@@ -795,8 +812,24 @@ body.Wt-rtl .Wt-tabs li {
     padding: 3px 0px 3px 3px;
 }
 
+.Wt-sbspacer {
+    float: right;
+    width: 16px;
+    height: 1px;
+    border: 0px;
+    display: none;
+}
+
+body.Wt-rtl .Wt-sbspacer {
+    float: left;
+}
+
 .Wt-tree .cols-row {
     float: right;
+}
+
+body.Wt-rtl .Wt-tree .cols-row {
+    float: left;
 }
 
 /* selection */
@@ -840,6 +873,11 @@ body.Wt-rtl .Wt-itemview .Wt-tv-rh {
     width: 0px;
     margin-left: 4px;
     cursor: default;
+}
+
+body.Wt-rtl .Wt-itemview .Wt-tv-no-rh {
+    margin-left: 0px;
+    margin-right: 4px;
 }
 
 /* sort handles */
@@ -889,6 +927,7 @@ body.Wt-rtl .Wt-itemview .Wt-tv-sh {
     text-overflow: ellipsis;
     overflow: hidden; /* needed for IE only */
     white-space: nowrap;
+	height: 20px;
 }
 
 .Wt-itemview .Wt-header .Wt-disabled .Wt-label {
@@ -986,14 +1025,12 @@ body.Wt-rtl .Wt-tableview .Wt-tv-br {
     border-left: 1px solid #dcdfe8;
 }
 
-/* borders */
 body.Wt-ltr .Wt-tableview .Wt-tv-contents .Wt-tv-c,
 body.Wt-ltr .Wt-tableview .Wt-plaintable tbody .Wt-tv-c {
     border-right: 0px;
     margin-right: 1px;
 }
 
-/* borders */
 body.Wt-rtl .Wt-tableview .Wt-tv-contents .Wt-tv-c,
 body.Wt-rtl .Wt-tableview .Wt-plaintable tbody .Wt-tv-c {
     border-left: 0px;
@@ -1011,8 +1048,17 @@ body.Wt-rtl .Wt-tableview .Wt-plaintable tbody .Wt-tv-c {
     list-style: none;
 }
 
+body.Wt-rtl .Wt-treeview ul {
+    padding-left: 0px;
+    padding-right: 20px;
+}
+
 .Wt-treeview ul.Wt-tv-root {
     padding-left: 0px;
+}
+
+body.Wt-rtl .Wt-treeview ul.Wt-tv-root {
+    padding-right: 0px;
 }
 
 .Wt-treeview .Wt-tv-row {
@@ -1034,10 +1080,6 @@ body.Wt-rtl .Wt-treeview .Wt-tv-row {
 
 body.Wt-rtl .Wt-treeview .Wt-tv-row .Wt-tv-c {
     float: right;
-}
-
-.Wt-treeview .Wt-tv-c {
-    /* padding: 0px 3px; */
 }
 
 .Wt-treeview img.icon, .Wt-treeview input.icon {
@@ -1085,20 +1127,28 @@ body.Wt-rtl .Wt-treeview .Wt-header .Wt-tv-c {
     float: left;
 }
 
+body.Wt-rtl .Wt-treeview .Wt-ctrl {
+    float: right;
+}
+
 .Wt-treeview .Wt-ctrl.expand {
-    background: url(nav-plus.png) no-repeat 0 center;
+    background-image: url(nav-plus.png);
+    background-repeat: no-repeat;
+    background-position: 0 center;
 }
 
 body.Wt-rtl .Wt-treeview .Wt-ctrl.expand {
-    background: url(nav-plus-rtl.png) no-repeat 0 center;
+    background-image: url(nav-plus-rtl.png);
 }
 
 .Wt-treeview .Wt-ctrl.collapse {
-    background: url(nav-minus.png) no-repeat 0 center;
+    background-image: url(nav-minus.png);
+    background-repeat: no-repeat;
+    background-position: 0 center;
 }
 
 body.Wt-rtl .Wt-treeview .Wt-ctrl.collapse {
-    background: url(nav-minus-rtl.png) no-repeat 0 center;
+    background-image: url(nav-minus-rtl.png);
 }
 
 /* borders */
@@ -1125,8 +1175,8 @@ body.Wt-rtl .Wt-treeview li .Wt-tv-row .Wt-tv-c {
  */
 .Wt-pagingbar {
     text-align: center;
-    height: 25px;
-    line-height: 25px;
+    height: 35px;
+    line-height: 35px;
 }
 
 .Wt-pagingbar span {

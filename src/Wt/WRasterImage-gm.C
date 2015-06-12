@@ -39,7 +39,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#ifdef WIN32
+#if defined(_MSC_VER) && (_MSC_VER < 1800)
 namespace {
   double round(double x)
   {
@@ -159,7 +159,7 @@ WRasterImage::WRasterImage(const std::string& type,
 
   std::string magick = type;
   std::transform(magick.begin(), magick.end(), magick.begin(), toupper);
-  strcpy(impl_->image_->magick, type.c_str());
+  strcpy(impl_->image_->magick, magick.c_str());
 }
 
 void WRasterImage::clear()
@@ -184,6 +184,7 @@ WRasterImage::~WRasterImage()
 
   delete impl_->fontSupport_;
 
+  delete impl_;
   // DestroyMagick(); apparently should be called only once ?
 }
 
@@ -479,7 +480,7 @@ void WRasterImage::setChanged(WFlags<ChangeFlag> flags)
        * We have a resolved true type font.
        */
       name = impl_->fontSupport_->drawingFontPath();
-    } else {
+    } else if (font.genericFamily() != WFont::Default) {
       FontSupport::FontMatch match = impl_->fontSupport_->matchFont(font);
 
       if (match.matched())
@@ -611,7 +612,7 @@ void WRasterImage::drawImage(const WRectF& rect, const std::string& imgUri,
   if (cImage == 0) {
     LOG_ERROR("drawImage failed: "
 	      << (exception.reason ? exception.reason :
-		  "(unkown reason)") << ", "
+		  "(unknown reason)") << ", "
 	      << (exception.description ? exception.description :
 		  "(unknown description)") );
     return;
@@ -651,7 +652,7 @@ void WRasterImage::drawLine(double x1, double y1, double x2, double y2)
 {
   impl_->internalInit();
 
-  DrawLine(impl_->context_, x1, y1, x2, y2);
+  DrawLine(impl_->context_, x1-0.5, y1-0.5, x2-0.5, y2-0.5);
 }
 
 void WRasterImage::drawPath(const WPainterPath& path)
@@ -676,10 +677,34 @@ void WRasterImage::setPixel(int x, int y, const WColor& c)
   SyncImagePixels(impl_->image_);
 }
 
+void WRasterImage::getPixels(void *data)
+{
+  int w = (int)width_.value();
+  int h = (int)height_.value();
+  unsigned char *d = (unsigned char *)data;
+  ExceptionInfo ei;
+  const PixelPacket *pixel = AcquireImagePixels(impl_->image_,
+    0, 0, w, h, &ei);
+  if (pixel) {
+    int i = 0;
+    for (int r = 0; r < h; r++)
+      for (int c = 0; c < w; c++) {
+	d[i++] = pixel->red;
+	d[i++] = pixel->green;
+	d[i++] = pixel->blue;
+	d[i++] = 254-pixel->opacity;
+	pixel++;
+      }
+  } else {
+    throw WException(std::string("WRasterImage::getPixels(): error: ") +
+      ei.description);
+  }
+}
+
 WColor WRasterImage::getPixel(int x, int y) 
 {
-  PixelPacket *pixel = GetImagePixels(impl_->image_, x, y, 1, 1);
-  return WColor(pixel->red, pixel->green, pixel->blue, pixel->opacity);
+  PixelPacket pixel = GetOnePixel(impl_->image_, x, y);
+  return WColor(pixel.red, pixel.green, pixel.blue, 254-pixel.opacity);
 }
 
 void WRasterImage::Impl::drawPlainPath(const WPainterPath& path)
@@ -912,9 +937,10 @@ void WRasterImage::drawText(const WRectF& rect,
 
     FontSupport::Bitmap bitmap(w, h);
     impl_->fontSupport_->drawText(painter_->font(), renderRect,
-			   t, bitmap, flags, text);
+				  t, bitmap, flags, text);
 
-    PixelPacket *pixels = GetImagePixels(impl_->image_, 0, 0, impl_->w_, impl_->h_);
+    PixelPacket *pixels = GetImagePixels(impl_->image_, 0, 0,
+					 impl_->w_, impl_->h_);
 
     WColor c = painter()->pen().color();
     PixelPacket pc;
@@ -955,7 +981,7 @@ WTextItem WRasterImage::measureText(const WString& text, double maxWidth,
     throw WException("WRasterImage::measureText() not supported");
   else
     return impl_->fontSupport_->measureText(painter_->font(), text, maxWidth,
-				     wordWrap);
+					    wordWrap);
 }
 
 WFontMetrics WRasterImage::fontMetrics()

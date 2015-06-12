@@ -27,6 +27,7 @@
 #include "Wt/Auth/AuthUtils.h"
 #include "Wt/PopupWindow.h"
 
+#include "WebUtils.h"
 #include "WebSession.h"
 #include "WebRequest.h"
 
@@ -75,6 +76,8 @@ public:
 
       const std::string *stateE = request.getParameter("state");
       if (!stateE || *stateE != process_->oAuthState_) {
+	LOG_ERROR(ERROR_MSG("invalid-state") << 
+		  ", state: " << (stateE ? *stateE : "(empty)"));
 	process_->setError(ERROR_MSG("invalid-state"));
 	sendError(response);
 	return;
@@ -82,6 +85,7 @@ public:
 
       const std::string *errorE = request.getParameter("error");
       if (errorE) {
+	LOG_ERROR(ERROR_MSG(+ *errorE));
 	process_->setError(ERROR_MSG(+ *errorE));
 	sendError(response);
 	return;
@@ -89,6 +93,7 @@ public:
 
       const std::string *codeE = request.getParameter("code");
       if (!codeE) {
+	LOG_ERROR(ERROR_MSG("missing-code"));
 	process_->setError(ERROR_MSG("missing-code"));
 	sendError(response);
 	return;
@@ -197,6 +202,8 @@ std::string OAuthProcess::authorizeUrl() const
       << "&scope=" << Wt::Utils::urlEncode(scope_)
       << "&response_type=code"
       << "&state=" << Wt::Utils::urlEncode(oAuthState_);
+
+  LOG_INFO("authorize URL: " << url.str());
 
   return url.str();
 }
@@ -463,8 +470,12 @@ struct OAuthService::Impl
 { 
   Impl()
     : redirectResource_(0)
-  { 
-    secret_ = WRandom::generateId(32);
+  {
+    try {
+      secret_ = configurationProperty("oauth2-secret");
+    } catch (std::exception& e) {    
+      secret_ = WRandom::generateId(32);
+    }
   }
 
 #ifdef WT_THREADED
@@ -502,12 +513,16 @@ struct OAuthService::Impl
 	  response.setStatus(302);
 	  response.addHeader("Location", redirectUrl);
 	  return;
-	}
-      }
+	} else
+	  LOG_ERROR("RedirectEndpoint: could not decode state " << *stateE);
+      } else
+	LOG_ERROR("RedirectEndpoint: missing state");
 
       response.setStatus(400);
       response.setMimeType("text/html");
-      response.out() << "<html><body><h1>Error</h1></body></html>";
+      response.out() << "<html><body>"
+		     << "<h1>OAuth Authentication error</h1>"
+		     << "</body></html>";
     }
 
   private:
@@ -545,15 +560,36 @@ std::string OAuthService::generateRedirectEndpoint() const
 std::string OAuthService::encodeState(const std::string& url) const
 {
   std::string msg = impl_->secret_ + url;
-  std::string hash = Wt::Utils::base64Encode(Wt::Utils::md5(msg));
-  return hash + "|" + url;
+
+  std::string hash(Wt::Utils::sha1(msg));
+  
+  std::string b = Wt::Utils::base64Encode(hash + "|" + url);
+
+  /* Variant of base64 encoding which is resistant to broken OAuth2 peers
+   * that do not properly re-encode the state */
+  b = Wt::Utils::replace(b, "+", "-");
+  b = Wt::Utils::replace(b, "/", "_");  
+  b = Wt::Utils::replace(b, "=", ".");
+
+  return b;
 }
 
 std::string OAuthService::decodeState(const std::string& state) const
 {
-  std::size_t i = state.find('|');
+  std::string s = state;
+  s = Wt::Utils::replace(s, "-", "+");
+  s = Wt::Utils::replace(s, "_", "/");
+  s = Wt::Utils::replace(s, ".", "=");
+
+#ifndef WT_TARGET_JAVA
+  s = Wt::Utils::base64Decode(s);
+#else
+  s = Wt::Utils::base64DecodeS(s);
+#endif
+
+  std::size_t i = s.find('|');
   if (i != std::string::npos) {
-    std::string url = state.substr(i + 1);
+    std::string url = s.substr(i + 1);
 
     std::string check = encodeState(url);
     if (check == state)
@@ -566,9 +602,6 @@ std::string OAuthService::decodeState(const std::string& state) const
 
 std::string OAuthService::redirectEndpointPath() const
 {
-  /* Compute absolute URL for dynamic resource */
-  WApplication *app = WApplication::instance();
-
   /* Compute deployment path for static resource */
   Http::Client::URL parsedUrl;
   Http::Client::parseUrl(redirectEndpoint(), parsedUrl);
@@ -576,17 +609,22 @@ std::string OAuthService::redirectEndpointPath() const
   std::string path = parsedUrl.path;
 
 #ifndef WT_TARGET_JAVA
-  // Attempt to equalize the path with our deployment configuration,
-  // in case we are deployed using a reverse proxy
-  std::string publicDeployPath = app->environment().deploymentPath();
-  std::string deployPath = app->session()->deploymentPath();
+  /* Compute absolute URL for dynamic resource */
+  WApplication *app = WApplication::instance();
 
-  if (deployPath != publicDeployPath) {
-    int diff = (int)publicDeployPath.length() - deployPath.length();
-    if (diff > 0) {
-      std::string prefix = publicDeployPath.substr(0, diff);
-      if (boost::starts_with(path, prefix))
-	path = path.substr(prefix.length());
+  if (app) {
+    // Attempt to equalize the path with our deployment configuration,
+    // in case we are deployed using a reverse proxy
+    std::string publicDeployPath = app->environment().deploymentPath();
+    std::string deployPath = app->session()->deploymentPath();
+
+    if (deployPath != publicDeployPath) {
+      int diff = (int)publicDeployPath.length() - deployPath.length();
+      if (diff > 0) {
+	std::string prefix = publicDeployPath.substr(0, diff);
+	if (boost::starts_with(path, prefix))
+	  path = path.substr(prefix.length());
+      }
     }
   }
 #endif
@@ -606,7 +644,12 @@ void OAuthService::configureRedirectEndpoint() const
 
       LOG_INFO("deploying endpoint at " << path);
       WApplication *app = WApplication::instance();
-      WServer *server = app->environment().server();
+      WServer *server;
+      if (app)
+	server = app->environment().server();
+      else
+	server = WServer::instance();
+
       server->addResource(r, path);
 
       impl_->redirectResource_ = r;

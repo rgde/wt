@@ -33,6 +33,8 @@ typedef boost::system::system_error asio_system_error;
 #include "RequestHandler.h"
 #include "RequestParser.h"
 
+#include "Wt/WFlags"
+
 namespace http {
 namespace server {
 
@@ -56,9 +58,10 @@ public:
   virtual void start();
 
   void close();
+  bool closed() const;
 
   /// Like CGI's Url scheme: http or https
-  virtual std::string urlScheme() = 0;
+  virtual const char *urlScheme() = 0;
 
   virtual ~Connection();
 
@@ -72,21 +75,27 @@ public:
   void registerSslHandle(SSL *ssl) { request_.ssl = ssl; }
 #endif
 
-public: // huh?
-  void handleWriteResponse(const asio_error_code& e,
-      std::size_t bytes_transferred);
-  void handleWriteResponse();
-  void startWriteResponse();
+  bool waitingResponse() const { return waitingResponse_; }
+  void setHaveResponse() { haveResponse_ = true; }
+  void startWriteResponse(ReplyPtr reply);
+
+  void handleReadBody(ReplyPtr reply);
+  void readMore(ReplyPtr reply);
+  bool readAvailable();
+
+protected:
+  void handleWriteResponse(ReplyPtr reply,
+			   const asio_error_code& e,
+			   std::size_t bytes_transferred);
+  void handleWriteResponse(ReplyPtr reply);
   void handleReadRequest(const asio_error_code& e,
 			 std::size_t bytes_transferred);
   /// Process read buffer, reading request.
   void handleReadRequest0();
-  void handleReadBody(const asio_error_code& e,
+  void handleReadBody(ReplyPtr reply,
+		      const asio_error_code& e,
 		      std::size_t bytes_transferred);
-  void handleReadBody();
-  bool readAvailable();
 
-protected:
   void setReadTimeout(int seconds);
   void setWriteTimeout(int seconds);
 
@@ -98,34 +107,38 @@ protected:
   void finishReply();
 
   enum State {
-    Idle,
-    Reading,
-    Writing
+    Idle = 0x0,
+    Reading = 0x1,
+    Writing = 0x2
   };
 
-  State state_;
+  Wt::WFlags<State> state_;
 
-  virtual void stop() = 0;
+  virtual void stop();
 
 private:
   /*
    * Asynchronoulsy reading a request
    */
-  /// Start reading request.
   virtual void startAsyncReadRequest(Buffer& buffer, int timeout) = 0;
 
   /*
    * Asynchronoulsy reading a request body
    */
-  virtual void startAsyncReadBody(Buffer& buffer, int timeout) = 0;
-  void handleError(const asio_error_code& e);
-  void sendStockReply(Reply::status_type code);
+  virtual void startAsyncReadBody(ReplyPtr reply, Buffer& buffer,
+				  int timeout) = 0;
 
   /*
    * Asynchronoulsy writing a response
    */
-  virtual void startAsyncWriteResponse
-      (const std::vector<asio::const_buffer>& buffers, int timeout) = 0;
+  virtual void startAsyncWriteResponse(ReplyPtr reply,
+			      const std::vector<asio::const_buffer>& buffers, 
+				       int timeout) = 0;
+
+  /// Generic I/O error handling: closes the connection and cancels timers
+  void handleError(const asio_error_code& e);
+
+  void sendStockReply(Reply::status_type code);
 
   /// The handler used to process the incoming request.
   RequestHandler& request_handler_;
@@ -134,14 +147,18 @@ private:
   void cancelWriteTimer();
 
   void timeout(const asio_error_code& e);
+  void doTimeout();
 
   /// Timer for reading data.
   asio::deadline_timer readTimer_, writeTimer_;
 
-  /// Current buffer data, from last operation.
-  Buffer buffer_;
-  std::size_t buffer_size_;
-  Buffer::iterator remaining_;
+  /// Current request buffer data
+  std::list<Buffer> rcv_buffers_;
+
+  /// Size of last buffer and iterator for next request in last buffer
+  std::size_t rcv_buffer_size_;
+  Buffer::iterator rcv_remaining_;
+  bool rcv_body_buffer_;
 
   /// The incoming request.
   Request request_;
@@ -149,18 +166,26 @@ private:
   /// The parser for the incoming request.
   RequestParser request_parser_;
 
-  /// The reply to be sent back to the client.
-  ReplyPtr reply_;
-
-  /// The reply is complete.
-  bool moreDataToSendNow_;
+  /// Recycled reply pointers
+  ReplyPtr lastWtReply_, lastProxyReply_, lastStaticReply_;
 
   /// The server that owns this connection
   Server *server_;
+
+  /// Indicates that we're waiting for a response while invoking a
+  /// Reply function and thus that Reply function should not start a
+  /// write response but simply indicate haveResponse_
+  bool waitingResponse_;
+
+  /// Indicates that we can send a response
+  bool haveResponse_;
+
+  /// Indicates that the current response is finished (after the
+  /// current write operation)
+  bool responseDone_;
 };
 
 typedef boost::shared_ptr<Connection> ConnectionPtr;
-typedef boost::weak_ptr<Connection> ConnectionWeakPtr;
 
 } // namespace server
 } // namespace http

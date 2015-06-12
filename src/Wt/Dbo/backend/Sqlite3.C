@@ -24,6 +24,16 @@ namespace Wt {
   namespace Dbo {
     namespace backend {
 
+inline bool isNaN(double d) {
+#ifdef _MSC_VER
+  // received bug reports that on 64 bit windows, MSVC2005
+  // generates wrong code for d != d.
+  return _isnan(d) != 0;
+#else
+  return !(d == d);
+#endif
+}
+
 class Sqlite3Exception : public Exception
 {
 public:
@@ -119,7 +129,11 @@ public:
   {
     DEBUG(std::cerr << this << " bind " << column << " " << value << std::endl);
 
-    int err = sqlite3_bind_double(st_, column + 1, value);
+    int err;
+    if (isNaN(value))
+      err = sqlite3_bind_text(st_, column + 1, "NaN", 3, SQLITE_TRANSIENT);
+    else
+      err = sqlite3_bind_double(st_, column + 1, value);
 
     handleErr(err);
   }
@@ -185,7 +199,7 @@ public:
       err = sqlite3_bind_blob(st_, column + 1, "", 0, SQLITE_TRANSIENT);
     else 
       err = sqlite3_bind_blob(st_, column + 1, &(*(value.begin())),
-			      static_cast<int>(value.size()), SQLITE_STATIC);
+			      static_cast<int>(value.size()), SQLITE_TRANSIENT);
 
     handleErr(err);
   }
@@ -328,7 +342,7 @@ public:
       return false;
 
     *value = sqlite3_column_double(st_, column);
-
+  
     DEBUG(std::cerr << this 
 	  << " result double " << column << " " << *value << std::endl);
 
@@ -591,7 +605,7 @@ Sqlite3::autoincrementDropSequenceSql(const std::string &table,
   return std::vector<std::string>();
 }
 
-std::string Sqlite3::autoincrementInsertSuffix() const
+std::string Sqlite3::autoincrementInsertSuffix(const std::string& id) const
 {
   return std::string();
 }
@@ -619,6 +633,11 @@ const char *Sqlite3::dateTimeType(SqlDateTimeType type) const
 const char *Sqlite3::blobType() const
 {
   return "blob not null";
+}
+
+bool Sqlite3::supportDeferrableFKConstraint() const
+{
+  return true;
 }
 
 void Sqlite3::setDateTimeStorage(SqlDateTimeType type,

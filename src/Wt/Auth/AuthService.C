@@ -17,6 +17,18 @@
 
 #include <memory>
 
+#ifndef WT_CXX11
+#if defined(__GXX_EXPERIMENTAL_CXX0X__) || __cplusplus >= 201103L
+#define WT_CXX11
+#endif
+#endif
+
+#ifdef WT_CXX11
+#define AUTO_PTR std::unique_ptr
+#else
+#define AUTO_PTR std::auto_ptr
+#endif
+
 namespace Wt {
   namespace Auth {
 
@@ -139,6 +151,15 @@ AuthService::~AuthService()
 void AuthService::setEmailVerificationEnabled(bool enabled)
 {
   emailVerification_ = enabled;
+  if (!enabled)
+    emailVerificationReq_ = false;
+}
+
+void AuthService::setEmailVerificationRequired(bool enabled)
+{
+  emailVerificationReq_ = enabled;
+  if (enabled)
+    emailVerification_ = true;
 }
 
 void AuthService::setEmailRedirectInternalPath(const std::string& internalPath)
@@ -160,7 +181,7 @@ void AuthService::setAuthTokensEnabled(bool enabled, const std::string& cookieNa
 User AuthService::identifyUser(const Identity& identity,
 			    AbstractUserDatabase& users) const
 {
-  std::auto_ptr<AbstractUserDatabase::Transaction> t(users.startTransaction());
+  AUTO_PTR<AbstractUserDatabase::Transaction> t(users.startTransaction());
 
   User user = users.findWithIdentity(identity.provider(),
 				     WString::fromUTF8(identity.id()));
@@ -219,7 +240,7 @@ std::string AuthService::createAuthToken(const User& user) const
   if (!user.isValid())
     throw WException("Auth: createAuthToken(): user invalid");
 
-  std::auto_ptr<AbstractUserDatabase::Transaction>
+  AUTO_PTR<AbstractUserDatabase::Transaction>
     t(user.database()->startTransaction());
 
   std::string random = WRandom::generateId(tokenLength_);
@@ -237,7 +258,7 @@ std::string AuthService::createAuthToken(const User& user) const
 AuthTokenResult AuthService::processAuthToken(const std::string& token,
 					      AbstractUserDatabase& users) const
 {
-  std::auto_ptr<AbstractUserDatabase::Transaction> t(users.startTransaction());
+  AUTO_PTR<AbstractUserDatabase::Transaction> t(users.startTransaction());
 
   std::string hash = tokenHashFunction()->compute(token, std::string());
 
@@ -316,7 +337,7 @@ std::string AuthService::parseEmailToken(const std::string& internalPath) const
 EmailTokenResult AuthService::processEmailToken(const std::string& token,
 					     AbstractUserDatabase& users) const
 {
-  std::auto_ptr<AbstractUserDatabase::Transaction> tr(users.startTransaction());
+  AUTO_PTR<AbstractUserDatabase::Transaction> tr(users.startTransaction());
 
   std::string hash = tokenHashFunction()->compute(token, std::string());
 

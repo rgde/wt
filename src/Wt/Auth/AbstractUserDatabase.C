@@ -36,7 +36,7 @@ public:
   { }
 };
 
-AbstractUserDatabase::Transaction::~Transaction()
+AbstractUserDatabase::Transaction::~Transaction() WT_CXX11ONLY(noexcept(false))
 { }
 
 AbstractUserDatabase::AbstractUserDatabase()
@@ -53,6 +53,11 @@ AbstractUserDatabase::Transaction *AbstractUserDatabase::startTransaction()
 User::Status AbstractUserDatabase::status(const User& user) const
 {
   return User::Normal;
+}
+
+void AbstractUserDatabase::setStatus(const User& user, User::Status status)
+{
+  LOG_ERROR(Require("setStatus()").what());
 }
 
 PasswordHash AbstractUserDatabase::password(const User& user) const

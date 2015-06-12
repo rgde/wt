@@ -35,6 +35,10 @@ void WSpinBox::setMinimum(int minimum)
 {
   min_ = minimum;
 
+  WIntValidator *v = dynamic_cast<WIntValidator *>(validator());
+  if (v)
+    v->setBottom(min_);
+
   changed_ = true;
   repaint();
 }
@@ -43,17 +47,18 @@ void WSpinBox::setMaximum(int maximum)
 {
   max_ = maximum;
 
+  WIntValidator *v = dynamic_cast<WIntValidator *>(validator());
+  if (v)
+    v->setTop(max_);
+
   changed_ = true;
   repaint();
 }
 
 void WSpinBox::setRange(int minimum, int maximum)
 {
-  min_ = minimum;
-  max_ = maximum;
-
-  changed_ = true;
-  repaint();
+  setMinimum(minimum);
+  setMaximum(maximum);
 }
 
 void WSpinBox::setSingleStep(int step)
@@ -115,7 +120,7 @@ WValidator *WSpinBox::createValidator()
   return validator;
 }
 
-WString WSpinBox::textFromValue() const
+WT_USTRING WSpinBox::textFromValue() const
 {
   if (nativeControl())    
     return WLocale::currentLocale().toString(value_);
@@ -124,7 +129,7 @@ WString WSpinBox::textFromValue() const
       + WLocale::currentLocale().toString(value_).toUTF8()
       + suffix().toUTF8();
 
-    return WString::fromUTF8(text);
+    return WT_USTRING::fromUTF8(text);
   }
 }
 

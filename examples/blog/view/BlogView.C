@@ -10,11 +10,7 @@
 #include "BlogLoginWidget.h"
 
 #include "../model/BlogSession.h"
-#include "../model/Comment.h"
 #include "../model/Post.h"
-#include "../model/Tag.h"
-#include "../model/Token.h"
-#include "../model/User.h"
 
 #include <Wt/WAnchor>
 #include <Wt/WApplication>
@@ -47,7 +43,6 @@ public:
     : basePath_(basePath),
       rssFeedUrl_(rssFeedUrl),
       session_(connectionPool),
-      blogView_(blogView),
       panel_(0),
       authorPanel_(0),
       users_(0),
@@ -117,7 +112,6 @@ public:
 private:
   std::string basePath_, rssFeedUrl_;
   BlogSession session_;
-  BlogView   *blogView_;
   BlogLoginWidget *loginWidget_;
 
   WStackedWidget* panel_;
@@ -239,7 +233,7 @@ private:
     handlePathChange(wApp->internalPath());
   }
 
-  void handlePathChange(const std::string& path) {
+  void handlePathChange(const std::string& p) {
     WApplication *app = wApp;
 
     if (app->internalPathMatches(basePath_)) {

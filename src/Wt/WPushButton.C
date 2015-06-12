@@ -32,6 +32,16 @@ WPushButton::WPushButton(const WString& text, WContainerWidget *parent)
   text_.text = text;
 }
 
+WPushButton::WPushButton(const WString& text, TextFormat format,
+			 WContainerWidget *parent)
+  : WFormWidget(parent),
+    popupMenu_(0)
+{ 
+  text_.format = PlainText;
+  text_.text = text;
+  setTextFormat(format);
+}
+
 WPushButton::~WPushButton()
 {
   if (popupMenu_)
@@ -128,6 +138,11 @@ bool WPushButton::setTextFormat(TextFormat textFormat)
   return text_.setFormat(textFormat);
 }
 
+bool WPushButton::setFirstFocus()
+{
+  return false;
+}
+
 void WPushButton::setIcon(const WLink& link)
 {
   if (canOptimizeUpdates() && (link == icon_))
@@ -156,7 +171,7 @@ void WPushButton::setLink(const WLink& link)
 
 void WPushButton::setLinkTarget(AnchorTarget target)
 {
-  linkState_.target = target;
+  linkState_.link.setTarget(target);
 }
 
 void WPushButton::setRef(const std::string& url)
@@ -220,6 +235,7 @@ void WPushButton::updateDom(DomElement& element, bool all)
     image->setId("im" + formName());
     element.insertChildAt(image, 0);
     flags_.set(BIT_ICON_RENDERED);
+    flags_.reset(BIT_ICON_CHANGED);
   }
 
   if (flags_.test(BIT_TEXT_CHANGED) || all) {
@@ -279,7 +295,7 @@ void WPushButton::renderHRef(DomElement& element)
     else {
       std::string url = linkState_.link.resolveUrl(app);
 
-      if (linkState_.target == TargetNewWindow)
+      if (linkState_.link.target() == TargetNewWindow)
 	linkState_.clickJS->setJavaScript
 	  ("function(){"
 	   "window.open(" + jsStringLiteral(url) + ");"
@@ -308,7 +324,7 @@ void WPushButton::getDomChanges(std::vector<DomElement *>& result,
       image->removeFromParent();
       flags_.reset(BIT_ICON_RENDERED);
     } else
-      image->setProperty(PropertySrc, icon_.url());
+      image->setProperty(PropertySrc, icon_.resolveUrl(app));
 
     result.push_back(image);
 
@@ -320,7 +336,10 @@ void WPushButton::getDomChanges(std::vector<DomElement *>& result,
 
 void WPushButton::propagateRenderOk(bool deep)
 {
-  flags_.reset();
+  flags_.reset(BIT_TEXT_CHANGED);
+  flags_.reset(BIT_ICON_CHANGED);
+  flags_.reset(BIT_LINK_CHANGED);
+  flags_.reset(BIT_CHECKED_CHANGED);
 
   WFormWidget::propagateRenderOk(deep);
 }
@@ -356,6 +375,7 @@ void WPushButton::enableAjax()
     WApplication *app = WApplication::instance();
     if (app->theme()->canStyleAnchorAsButton()) {
       flags_.set(BIT_LINK_CHANGED);
+      repaint();
     }
   }
 

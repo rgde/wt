@@ -218,7 +218,7 @@ bool WCompositeWidget::isVisible() const
   else if (parent())
     return parent()->isVisible();
   else
-    return true;
+    return false;
 }
 
 void WCompositeWidget::setDisabled(bool disabled)
@@ -351,9 +351,14 @@ void WCompositeWidget::setToolTip(const WString& text, TextFormat textFormat)
   impl_->setToolTip(text, textFormat);
 }
 
-const WString& WCompositeWidget::toolTip() const
+WString WCompositeWidget::toolTip() const
 {
   return impl_->toolTip();
+}
+
+void WCompositeWidget::setDeferredToolTip(bool enable, TextFormat textFormat)
+{
+  impl_->setDeferredToolTip(enable, textFormat);
 }
 
 void WCompositeWidget::refresh()
@@ -441,6 +446,31 @@ bool WCompositeWidget::loaded() const
   return impl_ ? impl_->loaded() : true;
 }
 
+void WCompositeWidget::setCanReceiveFocus(bool enabled)
+{
+  impl_->setCanReceiveFocus(enabled);
+}
+
+bool WCompositeWidget::canReceiveFocus() const
+{
+  return impl_->canReceiveFocus();
+}
+
+void WCompositeWidget::setFocus(bool focus)
+{
+  impl_->setFocus(true);
+}
+
+bool WCompositeWidget::hasFocus() const
+{
+  return impl_->hasFocus();
+}
+
+bool WCompositeWidget::setFirstFocus()
+{
+  return impl_->webWidget()->setFirstFocus();
+}
+
 void WCompositeWidget::setTabIndex(int index)
 {
   impl_->setTabIndex(index);
@@ -508,7 +538,8 @@ void WCompositeWidget::getSDomChanges(std::vector<DomElement *>& result,
 				      WApplication *app)
 {
   if (needsToBeRendered())
-    render(impl_->isRendered() ? RenderUpdate : RenderFull);
+    render(impl_->isRendered() || !WWebWidget::canOptimizeUpdates()
+	   ? RenderUpdate : RenderFull);
 
   impl_->getSDomChanges(result, app);
 }

@@ -112,6 +112,8 @@ ChatWidget::ChatWidget(const WEnvironment& env, SimpleChatServer& server)
   useStyleSheet("chatwidget.css");
   useStyleSheet("chatwidget_ie6.css", "lt IE 7");
 
+  messageResourceBundle().use(appRoot() + "simplechat");
+
   const std::string *div = env.getParameter("div");
   std::string defaultDiv = "div";
   if (!div)
@@ -147,10 +149,8 @@ WApplication *createWidget(const WEnvironment& env, SimpleChatServer& server)
 
 int main(int argc, char **argv)
 {
-  Wt::WServer server(argv[0]);
+  Wt::WServer server(argc, argv, WTHTTP_CONFIGURATION);
   SimpleChatServer chatServer(server);
-
-  server.setServerConfiguration(argc, argv, WTHTTP_CONFIGURATION);
 
   /*
    * We add two entry points: one for the full-window application,

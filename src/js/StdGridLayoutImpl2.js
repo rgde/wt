@@ -11,7 +11,6 @@ WT_DECLARE_WT_MEMBER
  function(APP, id, parentId, fitWidth, fitHeight, progressive,
 	  maxWidth, maxHeight, hMargins, vMargins, conf) {
    var WT = APP.WT;
-   this.ancestor = null;
    this.descendants = [];
 
    /** @const */ var debug = false;
@@ -49,9 +48,9 @@ WT_DECLARE_WT_MEMBER
    var itemDirty = true;   /* one or more items (with .dirty=true) need to
 			      be remeasured */
    var layoutDirty = true; /* the parent size may have changed */
-   var topLevel = false, parent = null, parentItemWidget = null,
-     propagateSizeToParent = false, parentInitialized = false,
-     parentMargin = [], parentWithWtPS = false;
+
+   var topLevel, parent, parentItemWidget, propagateSizeToParent,
+     parentInitialized = false, parentMargin, parentWithWtPS;
 
    var rtl = $(document.body).hasClass('Wt-rtl');
 
@@ -80,7 +79,8 @@ WT_DECLARE_WT_MEMBER
 	 handleClass: 'Wt-vrh2',
 	 resizeDir: 'h',
 	 resizerClass: 'Wt-hsh2',
-	 fitSize: fitWidth
+	 fitSize: fitWidth,
+         resizeHandles: []
        }, {
          initialized: false,
 	 config: config.rows,
@@ -105,10 +105,22 @@ WT_DECLARE_WT_MEMBER
 	 handleClass: 'Wt-hrh2',
 	 resizeDir: 'v',
 	 resizerClass: 'Wt-vsh2',
-	 fitSize: fitHeight
+	 fitSize: fitHeight,
+         resizeHandles: []
        }];
 
    jQuery.data(document.getElementById(id), 'layout', this);
+
+   function getItem(id) {
+     var i, il;
+     for (i = 0, il = config.items.length; i < il; ++i) {
+       var item = config.items[i];
+       if (item && item.id == id)
+	  return item;
+     }
+
+     return null;
+   }
 
    function calcPreferredSize(element, dir, asSet, widget) {
      var DC = DirConfig[dir];
@@ -118,12 +130,20 @@ WT_DECLARE_WT_MEMBER
      var l, p;
 
      /* Allow accurate width measurement for widget with offset */
-     if (dir == HORIZONTAL &&
-	 (scrollSize + WT.pxself(element, DC.left) >= widget.clientWidth)) {
-       l = element.style[DC.left];
-       setCss(element, DC.left, NA_px);
+     if (dir == HORIZONTAL) {
+       /*
+	* Somehow, Firefox more correctly does not ignore parent width...
+	*/
+       var offLeft = WT.pxself(element, DC.left);
+       if (scrollSize + offLeft > widget.clientWidth ||
+	   (scrollSize + offLeft == widget.clientWidth &&
+	    WT.isGecko &&
+	    widget.parentNode.parentNode.style.visibility === 'hidden')) {
+	 l = element.style[DC.left];
+	 setCss(element, DC.left, NA_px);
        
-       scrollSize = dir ? element.scrollHeight : element.scrollWidth;
+	 scrollSize = dir ? element.scrollHeight : element.scrollWidth;
+       }
      }
 
      var clientSize = dir ? element.clientHeight : element.clientWidth;
@@ -213,7 +233,13 @@ WT_DECLARE_WT_MEMBER
      if (asSet)
        return [scrollSize, scrollBar];
 
-     if (!WT.isOpera)
+     if (WT.isGecko && 
+	 dir == HORIZONTAL && 
+	 element.getBoundingClientRect().width != 
+	 Math.ceil(element.getBoundingClientRect().width))
+       scrollSize += 1;
+
+     if (!WT.boxSizing(element) && !WT.isOpera)
        scrollSize += border;
 
      scrollSize +=
@@ -334,6 +360,14 @@ WT_DECLARE_WT_MEMBER
        return false;
    }
 
+   /*
+    * Only checks the single widget -- already assumes the ancestors are visible
+    */
+   function isHidden(w) {
+     // XXX second condition is a hack for WTextEdit
+     return (w.style.display === 'none' && !w.ed) || $(w).hasClass('Wt-hidden');
+   }
+
    function measure(dir, widget, container)
    {
      var DC = DirConfig[dir],
@@ -423,15 +457,15 @@ WT_DECLARE_WT_MEMBER
 	   if (!item.margin)
 	     item.margin = [];
 
-	   if ($(item.w).hasClass('Wt-hidden')) {
-	     item.ps[dir] = item.ms[dir] = 0;
-	     continue;
-	   }
-
 	   var first = !item.set;
 
 	   if (!item.set)
 	     item.set = [false, false];
+
+	   if (isHidden(item.w)) {
+	     item.ps[dir] = item.ms[dir] = 0;
+	     continue;
+	   }
 
 	   if (item.w) {
 	     if (WT.isIE)
@@ -439,13 +473,18 @@ WT_DECLARE_WT_MEMBER
 
 	     if (debug)
 	       console.log("measure " + dir + " "
-	 		   + item.id + ': ' + item.ps[0] + ',' + item.ps[1]
-			   + ',' + item.dirty);
+	 		   + item.id +
+			   (item.w.className ? ' (' + item.w.className + '): '
+			   : ': ') +
+			    item.ps[0] + ',' + item.ps[1]
+			   + ',' + item.dirty + ', set: ['
+			   + item.set[0] + ',' + item.set[1] + '], sc: ['
+			   + item.sc[0] + ',' + item.sc[1] + ']');
 
 	     if (item.dirty) {
 	       var wMinimum;
 	       if (item.dirty > 1) {
-		 calcMinimumSize(item.w, dir);
+		 wMinimum = calcMinimumSize(item.w, dir);
 		 item.ms[dir] = wMinimum;
 	       } else
 		 wMinimum = item.ms[dir];
@@ -570,8 +609,7 @@ WT_DECLARE_WT_MEMBER
 	       console.log(" ->" + item.id + ': ' + item.ps[0] + ","
 			   + item.ps[1]);
 
-	     // XXX second condition is a hack for WTextEdit
-	     var hidden = item.w.style.display === 'none' && !item.w.ed;
+	     var hidden = isHidden(item.w);
 
 	     if (!hidden && (!item.span || item.span[dir] == 1)) {
 	       allHidden = false;
@@ -601,51 +639,60 @@ WT_DECLARE_WT_MEMBER
        if (debug)
 	 console.log("(before spanned) "
 		     + id + ': ' + dir + " ps " + preferredSize);
-       for (di = 0; di < dirCount; ++di) {
-	 for (oi = 0; oi < otherCount; ++oi) {
-	   var item = DC.getItem(di, oi);
 
-	   if (item && item.span && item.span[dir] > 1) {
-	     var ps = item.ps[dir], count = 0, stretch = 0, si;
+       function handleOverspanned(getItemSize, sizes) {
+	 for (di = 0; di < dirCount; ++di) {
+	   for (oi = 0; oi < otherCount; ++oi) {
+	     var item = DC.getItem(di, oi);
 
-	     for (si = 0; si < item.span[dir]; ++si) {
-	       var cps = preferredSize[di + si];
+	     if (item && item.span && item.span[dir] > 1) {
+	       var ps = getItemSize(item), count = 0, stretch = 0, si;
 
-	       if (cps != -1) {
-		 ps -= cps;
-		 ++count;
-		 if (DC.config[di + si][STRETCH] > 0)
-		   stretch += DC.config[di + si][STRETCH];
+	       for (si = 0; si < item.span[dir]; ++si) {
+		 var cps = sizes[di + si];
+
+		 if (cps != -1) {
+		   ps -= cps;
+		   ++count;
+		   if (DC.config[di + si][STRETCH] > 0)
+		     stretch += DC.config[di + si][STRETCH];
+		 }
 	       }
-	     }
 
-	     if (ps > 0) {
-	       if (count > 0) {
-		 if (stretch > 0)
-		   count = stretch;
+	       if (ps >= 0) {
+		 if (count > 0) {
+		   if (stretch > 0)
+		     count = stretch;
 
-		 for (si = 0; si < item.span[dir]; ++si) {
-		   var cps = preferredSize[di + si];
-		   if (cps != -1) {
-		     var portion;
-		     if (stretch > 0)
-		       portion = DC.config[di + si][STRETCH];
-		     else
-		       portion = 1;
+		   for (si = 0; si < item.span[dir]; ++si) {
+		     var cps = sizes[di + si];
+		     if (cps != -1) {
+		       var portion;
+		       if (stretch > 0)
+			 portion = DC.config[di + si][STRETCH];
+		       else
+			 portion = 1;
 
-		     if (portion > 0) {
-		       var fract = Math.round(ps / portion);
-		       ps -= fract; count -= portion;
-		       preferredSize[di + si] += fract;
+		       if (portion > 0) {
+			 var fract = Math.round(ps / portion);
+			 ps -= fract; count -= portion;
+			 sizes[di + si] += fract;
+		       }
 		     }
 		   }
-		 }
-	       } else
-		 preferredSize[di] = ps;
+		 } else
+		   sizes[di] = ps;
+	       }
 	     }
 	   }
 	 }
        }
+	 
+       handleOverspanned(function(item) { return item.ps[dir]; },
+			 preferredSize);
+
+       handleOverspanned(function(item) { return item.ms[dir]; },
+			 minimumSize);
      }
 
      var totalMargin = 0, first = true, rh = false;
@@ -685,7 +732,7 @@ WT_DECLARE_WT_MEMBER
      if (layoutDirty ||
 	 (prevMeasures[TOTAL_PREFERRED_SIZE] !=
 	  DC.measures[TOTAL_PREFERRED_SIZE]))
-       self.updateSizeInParent(dir);
+	 self.updateSizeInParent(dir);
 
      /* If our minimum layout requirements have changed, then we want
       * to communicate this up using the minimum widths
@@ -696,9 +743,7 @@ WT_DECLARE_WT_MEMBER
 	 && prevMeasures[TOTAL_MINIMUM_SIZE] != DC.measures[TOTAL_MINIMUM_SIZE]
 	 && container.parentNode.className != 'Wt-domRoot') {
        var w = DC.measures[TOTAL_MINIMUM_SIZE] + 'px';
-       if (setCss(container, 'min' + DC.Size, w))
-	 if (self.ancestor)
-	   self.ancestor.setContentsDirty(container);
+       setCss(container, 'min' + DC.Size, w);
      }
 
      if (container) {
@@ -717,6 +762,26 @@ WT_DECLARE_WT_MEMBER
       * mark the corresponding cell as dirty if the TOTAL_PREFERRED_SIZE
       * has changed (or force).
       */
+
+     if (parent && parentItemWidget.id) {
+       var piw = WT.$(parentItemWidget.id);
+       if (piw) {
+	 if (parentItemWidget != piw) {
+	   parent = jQuery.data(piw.parentNode, 'layout');
+	   if (!parent) {
+	     /* The parent item widget is no longer in the DOM. Need a test
+	      * case for that. */
+	     initializeParent();
+	   } else
+	     parentItemWidget = piw;
+	 }
+       } else {
+	 /* The parent item widget is no longer in the DOM. Need a test case
+	  * for that. */
+	 initializeParent();
+       }
+     }
+
      if (parent) {
        if (propagateSizeToParent) {
 	 var DC = DirConfig[dir],
@@ -810,6 +875,31 @@ WT_DECLARE_WT_MEMBER
 		       }, handle, widget, event, 0, 0);
    }
 
+   // does this column/row have an adjacent handle?
+   function hasResizeHandle(DC, di) {
+     var dirCount = DC.config.length;
+
+     var isResizable = DC.config[di][RESIZABLE] !== 0;
+     var i;
+
+     if (isResizable) {
+       /* Check that we are not the last column/row */
+       for (i = di + 1; i < dirCount; ++i) {
+	 if (DC.measures[MINIMUM_SIZE][i] > -1)
+	   return true;
+       }
+     }
+
+     /* See if preceding column/row has a resize handle */
+     for (i = di - 1; i >= 0; --i) {
+       if (DC.measures[MINIMUM_SIZE][i] > -1) {
+	 return DC.config[i][RESIZABLE] !== 0;
+       }
+     }
+
+     return false;
+   }
+
    function apply(dir, widget) {
      var DC = DirConfig[dir],
        OC = DirConfig[dir ^ 1],
@@ -853,7 +943,8 @@ WT_DECLARE_WT_MEMBER
 	      */
 	     var minSize, ieCSize;
 
-	     if ((WT.hasTag(container, "TD") || WT.hasTag(container, "TH"))
+	     if ((WT.hasTag(container, "TD") || WT.hasTag(container, "TH") ||
+		  $(container.parentNode).hasClass('Wt-domRoot'))
 		 && !(WT.isIE && !WT.isIElt9)) {
 	       minSize = 0;
 	       ieCSize = 1;
@@ -866,16 +957,19 @@ WT_DECLARE_WT_MEMBER
 	     }
 
 	     if (debug)
-	       console.log('cSize : ' + cSize + ', ieCSize : ' + ieCSize
+	       console.log('cSize : ' + cSize
+			   + (cClientSize ? '(clientSize)' : '') + ', ieCSize : '
+			   + ieCSize
 			   + ', minSize : ' + minSize + ', padding: '
-			   + padding(container, dir));
+			   + padding(container, dir) + ', sizePadding: '
+			   + sizePadding(container, dir));
 
-	     function epsEqual(a, b) {
-	       return Math.abs(a - b) < 1;
+	     function epsNotLarger(a, b) {
+	       return a - b <= 1;
 	     }
 
-	     if ((WT.isIElt9 && epsEqual(cSize, ieCSize))
-		 || (epsEqual(cSize, minSize + padding(container, dir)))) {
+	     if ((WT.isIElt9 && epsNotLarger(cSize, ieCSize))
+		 || (epsNotLarger(cSize, minSize + padding(container, dir)))) {
 	       if (debug)
 		 console.log('switching to managed container size '
 			     + dir + ' ' + id);
@@ -1002,17 +1096,22 @@ WT_DECLARE_WT_MEMBER
 	   var fs = -1;
 
 	   /*
+	    * if resizable was disabled, remove fixedSize and go back to 
+	    * using the preferred size
+	    */
+	   if (!hasResizeHandle(DC, di))
+	     DC.fixedSize[di] = undefined;
+
+	   /*
 	    * If we have a fixedSize (set by resizing) then we should
 	    * take it into account only if the resizer is still visible.
-	    *
-	    * This probably isn't entirely accurate, but neither is resizers
-	    * when hiding/showing widgets ?
 	    */
 	   if (typeof DC.fixedSize[di] !== "undefined"
 	       && (di + 1 == dirCount || measures[MINIMUM_SIZE][di + 1] > -1))
 	     fs = DC.fixedSize[di];
-	   else if ((DC.config[di][RESIZABLE] !== 0)
-		    && (DC.config[di][RESIZABLE][RS_INITIAL_SIZE] >= 0)) {
+	   else if (hasResizeHandle(DC, di) &&
+		    DC.config[di][RESIZABLE] !== 0 &&
+		    (DC.config[di][RESIZABLE][RS_INITIAL_SIZE] >= 0)) {
 	     fs = DC.config[di][RESIZABLE][RS_INITIAL_SIZE];
 	     if (DC.config[di][RESIZABLE][RS_PCT])
 	       fs = (cSize - measures[TOTAL_MARGIN]) * fs / 100;
@@ -1043,6 +1142,9 @@ WT_DECLARE_WT_MEMBER
 	   targetSize[di] = -1;
 	 }
        }
+
+       if (DC.fixedSize.length > dirCount)
+	 DC.fixedSize.length = dirCount;
 
        if (totalStretch == 0) {
 	 for (di = 0; di < dirCount; ++di)
@@ -1149,6 +1251,7 @@ WT_DECLARE_WT_MEMBER
 	   var hid = id + "-rs" + dir + "-" + di;
 	   var handle = WT.getElement(hid);
 	   if (!handle) {
+	     DC.resizeHandles[di] = hid;
 	     handle = document.createElement('div');
 	     handle.setAttribute('id', hid);
 	     handle.di = di;
@@ -1170,6 +1273,12 @@ WT_DECLARE_WT_MEMBER
 	   left += RESIZE_HANDLE_MARGIN;
 	   setCss(handle, DC.left, left + 'px');
 	   left += RESIZE_HANDLE_MARGIN;
+	 } else {
+	   if (DC.resizeHandles[di]) {
+	     var handle = WT.getElement(DC.resizeHandles[di]);
+	     handle.parentNode.removeChild(handle);
+	     DC.resizeHandles[di] = undefined;
+	   }
 	 }
 
 	 resizeHandle = DC.config[di][RESIZABLE] !== 0;
@@ -1178,6 +1287,12 @@ WT_DECLARE_WT_MEMBER
 	   first = false;
 	 else
 	   left += DC.margins[SPACING];
+       } else {
+	 if (DC.resizeHandles[di]) {
+	   var handle = WT.getElement(DC.resizeHandles[di]);
+	   handle.parentNode.removeChild(handle);
+	   DC.resizeHandles[di] = undefined;
+	 }
        }
 
        for (oi = 0; oi < otherCount; ++oi) {
@@ -1226,7 +1341,7 @@ WT_DECLARE_WT_MEMBER
 	      */
 	     var setSize = dir == 0 && item.sc[dir];
 
-	     var hidden = w.style.display === 'none' && !w.ed;
+	     var hidden = isHidden(w);
 
 	     if (!hidden && (setSize || ts != ps || item.layout)) {
 	       if (setCss(w, DC.size, tsm + 'px')) {
@@ -1246,20 +1361,16 @@ WT_DECLARE_WT_MEMBER
 	       if (!item.fs[dir]) {
 		 if (setCss(w, DC.size, ''))
 		   setItemDirty(item, 1);
-		 item.set[dir] = false;
+		 if (item.set)
+		   item.set[dir] = false;
 	       } else if (dir == HORIZONTAL)
-		 setCss(w, DC.size, item.fs[dir] + 'px');
+		 setCss(w, DC.size, (item.fs[dir] - m) + 'px');
 	     }
 
 	     off = left;
 	     item.size[dir] = tsm;
 	     item.psize[dir] = ts;
 	   } else {
-	     //debugger;
-	     //console.log(alignment);
-	     //console.log(left);
-	     //console.log(ts);
-	     //console.log(ps);
 	     switch (alignment) {
 	     case ALIGN_LEFT: off = left; break;
 	     case ALIGN_CENTER: off = left + (ts - ps)/2; break;
@@ -1311,6 +1422,16 @@ WT_DECLARE_WT_MEMBER
 	 left += targetSize[di];
      }
 
+     if (DC.resizeHandles.length > dirCount) {
+       for (var i=dirCount; i < DC.resizeHandles.length; i++) {
+	 if (DC.resizeHandles[i]) {
+	   var handle = WT.getElement(DC.resizeHandles[i]);
+	   handle.parentNode.removeChild(handle);
+	 }
+       }
+       DC.resizeHandles.length = dirCount;
+     }
+
      $(widget).children("." + OC.handleClass)
        .css(DC.size,
 	    (cSize - DC.margins[MARGIN_RIGHT] - DC.margins[MARGIN_LEFT])
@@ -1332,19 +1453,27 @@ WT_DECLARE_WT_MEMBER
 
      var i, il, childLayouts = {};
      for (i = 0, il = oldConfig.items.length; i < il; ++i) {
-       var item = oldConfig.items[i];
+       var oldItem = oldConfig.items[i];
 
-       if (item) {
-	 if (item.set) {
-	   if (item.set[HORIZONTAL])
-	     setCss(item.w, DirConfig[HORIZONTAL].size, '');
-	   if (item.set[VERTICAL])
-	     setCss(item.w, DirConfig[VERTICAL].size, '');
-	 }
+       if (oldItem) {
+	 var newItem = getItem(oldItem.id);
 
-	 if (item.layout) {
-	   self.setChildSize(item.w, HORIZONTAL, item.ps[HORIZONTAL]);
-	   self.setChildSize(item.w, VERTICAL, item.ps[VERTICAL]);
+	 if (newItem) {
+	   newItem.ps = oldItem.ps;
+	   newItem.sc = oldItem.sc;
+	   newItem.ms = oldItem.ms;
+	   newItem.size = oldItem.size;
+	   newItem.psize = oldItem.psize;
+	   newItem.fs = oldItem.fs;
+	   newItem.margin = oldItem.margin;
+	   newItem.set = oldItem.set;
+	 } else {
+	   if (oldItem.set) {
+	     if (oldItem.set[HORIZONTAL])
+	       setCss(oldItem.w, DirConfig[HORIZONTAL].size, '');
+	     if (oldItem.set[VERTICAL])
+	       setCss(oldItem.w, DirConfig[VERTICAL].size, '');
+	   }
 	 }
        }
      }
@@ -1360,17 +1489,11 @@ WT_DECLARE_WT_MEMBER
    };
 
    this.setElDirty = function(el) {
-     var i, il;
-
-     for (i = 0, il = config.items.length; i < il; ++i) {
-       var item = config.items[i];
-       if (item && item.id == el.id) {
-	 item.dirty = 2;
-	 itemDirty = true;
-	 APP.layouts2.scheduleAdjust();
-
-	 return;
-       }
+     var item = getItem(el.id);
+     if (item) {
+       item.dirty = 2;
+       itemDirty = true;
+       APP.layouts2.scheduleAdjust();
      }
    };
 
@@ -1380,23 +1503,23 @@ WT_DECLARE_WT_MEMBER
      var colCount = DirConfig[HORIZONTAL].config.length;
      for (i = 0, il = items.length; i < il; ++i) {
        var row = items[i][0], col = items[i][1];
-
        var item = config.items[row * colCount + col];
 
-       item.dirty = 2;
+       if (item) {
+	 item.dirty = 2;
+	 /*
+	  * When the item contains a layout, a change may also impact this:
+	  * it could become a different layout (e.g. WStackedWidget) or
+	  * a hidden layout (e.g. WPanel). Assume in general that it could
+	  * be the case that we need to reset the layout-based size, but don't
+	  * do it yet since it causes flicker when nothing drastic changed.
+	  */
+	 if (item.layout) {
+	   item.layout = false;
+	   item.wasLayout = true;
 
-       /*
-	* When the item contains a layout, a change may also impact this:
-	* it could become a different layout (e.g. WStackedWidget) or
-	* a hidden layout (e.g. WPanel). Assume in general that it could
-	* be the case that we need to reset the layout-based size, but don't
-	* do it yet since it causes flicker when nothing drastic changed.
-	*/
-       if (item.layout) {
-	 item.layout = false;
-	 item.wasLayout = true;
-
-	 APP.layouts2.setChildLayoutsDirty(self, item.w);
+	   APP.layouts2.setChildLayoutsDirty(self, item.w);
+	 }
        }
      }
 
@@ -1423,39 +1546,33 @@ WT_DECLARE_WT_MEMBER
          DC = DirConfig[dir],
          i, il;
 
-     for (i = 0, il = config.items.length; i < il; ++i) {
-       var item = config.items[i];
-       if (item && item.id == widget.id) {
-	 var di = (dir === HORIZONTAL ? i % colCount : i / colCount);
-	 var alignment = (item.align >> DC.alignBits) & 0xF;
+     var item = getItem(widget.id);
+     if (item) {
+       var di = (dir === HORIZONTAL ? i % colCount : i / colCount);
+       var alignment = (item.align >> DC.alignBits) & 0xF;
 
-	 if (alignment || !DC.stretched[di]) {
-	   if (!item.ps)
-	     item.ps = [];
-	   item.ps[dir] = preferredSize;
-	 }
-
-	 item.layout = true;
-
-	 setItemDirty(item, 1);
-	 break;
+       if (alignment || !DC.stretched[di]) {
+	 if (!item.ps)
+	   item.ps = [];
+	 item.ps[dir] = preferredSize;
        }
+
+       item.layout = true;
+
+       setItemDirty(item, 1);
      }
    };
 
-   this.measure = function(dir) {
-     var widget = WT.getElement(id);
+   function initializeParent() {
+       var widget = WT.getElement(id);
 
-     if (!widget)
-       return;
-
-     if (WT.isHidden(widget))
-       return;
-
-     if (!parentInitialized) {
-       parentInitialized = true;
        topLevel = parentId == null;
+       parent = null;
+       parentItemWidget = null;
        propagateSizeToParent = true;
+       parentInitialized = true;
+       parentMargin = [];
+       parentWithWtPS = false;
 
        if (!topLevel) {
 	 parent = jQuery.data(document.getElementById(parentId), 'layout');
@@ -1480,8 +1597,8 @@ WT_DECLARE_WT_MEMBER
 
 	   var l = jQuery.data(p.parentNode, 'layout');
 	   if (l) {
-	     parent = l;
 	     parentItemWidget = p;
+	     parent = l;
 	     break;
 	   }
 
@@ -1496,7 +1613,19 @@ WT_DECLARE_WT_MEMBER
 	 for (var i = 0; i < 2; ++i)
 	   DirConfig[i].sizeSet = WT.pxself(container, DirConfig[i].size) != 0;
        }
-     }
+   }
+
+   this.measure = function(dir) {
+     var widget = WT.getElement(id);
+
+     if (!widget)
+       return;
+
+     if (WT.isHidden(widget))
+       return;
+
+     if (!parentInitialized)
+       initializeParent();
 
      if (itemDirty || layoutDirty) {
        var container = topLevel ? widget.parentNode : null;
@@ -1539,14 +1668,6 @@ WT_DECLARE_WT_MEMBER
    this.WT = WT;
  });
 
-WT_DECLARE_WT_MEMBER
-(2, JavaScriptPrototype, "StdLayout2.prototype.initResize",
- function(WT, id, config) {
-   var self = this;
-
-   self.resizeInitialized = true;
- });
-
 WT_DECLARE_APP_MEMBER
 (1, JavaScriptObject, "layouts2",
   new (function() {
@@ -1555,7 +1676,8 @@ WT_DECLARE_APP_MEMBER
     var measureVertical = false;
 
     this.find = function(id) {
-      return jQuery.data(document.getElementById(id), 'layout');
+      var el = document.getElementById(id);
+      return el ? jQuery.data(el, 'layout') : null;
     };
 
     this.setDirty = function(id) {
@@ -1631,13 +1753,21 @@ WT_DECLARE_APP_MEMBER
       self.scheduleAdjust();
     };
 
-    var adjustScheduled = false;
+    var adjustScheduled = false, adjustLoop = 0;
 
     this.scheduleAdjust = function(forceMeasureVertical) {
       if (forceMeasureVertical)
 	measureVertical = true;
 
       if (adjustScheduled)
+	return;
+
+      if (adjusting)
+	++adjustLoop;
+      else
+	adjustLoop = 0;
+
+      if (adjustLoop >= 6)
 	return;
 
       adjustScheduled = true;

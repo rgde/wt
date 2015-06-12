@@ -92,7 +92,7 @@
   <message id="Wt.Auth.oauth-registration">Register with an identity provider:</message>
   <message id="Wt.Auth.or-oauth-registration">Or, register with an identity provider:</message>
   <message id="Wt.Auth.valid">Valid</message>
-  <message id="Wt.Auth.choose-password">Password</message>
+  <message id="Wt.Auth.choose-password">Choose Password</message>
   <message id="Wt.Auth.choose-password-info">Choose a password</message>
   <message id="Wt.Auth.repeat-password">Repeat password</message>
   <message id="Wt.Auth.repeat-password-info">Re-enter your password</message>
@@ -108,6 +108,13 @@
   <message id="Wt.Auth.registration">Registration</message>
   <message id="Wt.Auth.register">Register</message>
   <message id="Wt.Auth.error-user-invalid">Registration failed.</message>
+  <message id="Wt.Auth.email-unverified">Please confirm your email first.</message>
+  <message id="Wt.Auth.confirm-email-first">
+    <h5>Welcome!</h5>
+
+    You will be able to login after confirming your email address using the
+    email we've just sent you.
+  </message>
 
   <!-- PasswordPromptDialog -->
 
@@ -121,11 +128,6 @@
   <message id="Wt.Auth.updatepassword">Update password</message>
   <message id="Wt.Auth.update-password-form-title">Update password</message>
   <message id="Wt.Auth.update-password-form-info">Enter a new password below</message>
-  <message id="Wt.Auth.old-password">Current password</message>
-  <message id="Wt.Auth.old-password-info">Enter your current password</message>
-  <message id="Wt.Auth.new-password">New password</message>
-  <message id="Wt.Auth.repeat-new-password">Repeat new password</message>
-  <message id="Wt.Auth.repeat-new-password-info">Re-enter your new password</message>
 
   <!-- LostPasswordDialog -->
 

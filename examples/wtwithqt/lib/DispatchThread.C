@@ -51,8 +51,10 @@ DispatchThread::DispatchThread(WQApplication *app,
     qtEventLoop_(withEventLoop),
     dispatchObject_(0),
     event_(0),
+    exception_(false),
     done_(false),
-    newEvent_(false)
+    newEvent_(false),
+    eventLock_(0)
 { }
 
 void DispatchThread::run()
@@ -75,10 +77,13 @@ void DispatchThread::run()
 void DispatchThread::myExec()
 {
   boost::mutex::scoped_lock lock(newEventMutex_);
+  eventLock_ = &lock;
 
   for (;;) {
-    if (!newEvent_)
+    if (!newEvent_) {
+      log("debug") << "WQApplication: [thread] waiting for event";
       newEventCondition_.wait(lock);
+    }
 
     doEvent();
 
@@ -91,15 +96,20 @@ void DispatchThread::myExec()
 
 void DispatchThread::myPropagateEvent()
 {
-  boost::mutex::scoped_lock lock(newEventMutex_);
-  newEvent_ = true;
+  {
+    boost::mutex::scoped_lock lock(newEventMutex_);
+    newEvent_ = true;
+  }
   newEventCondition_.notify_one();
 }
 
 void DispatchThread::signalDone()
 {
-  boost::mutex::scoped_lock lock(doneMutex_);
-  done_ = true;
+  log("debug") << "WQApplication: [thread] signaling event done";
+  {
+    boost::mutex::scoped_lock lock(doneMutex_);
+    done_ = true;
+  }
   doneCondition_.notify_one();
 }
 
@@ -115,16 +125,22 @@ void DispatchThread::waitDone()
 
 void DispatchThread::notify(const WEvent& event)
 {
-  event_ = &event;
+  if (event_) {
+    app_->realNotify(event);
+  } else {
+    event_ = &event;
 
-  done_ = false;
+    done_ = false;
 
-  if (dispatchObject_)
-    dispatchObject_->propagateEvent();
-  else
-    myPropagateEvent();
+    if (dispatchObject_)
+      dispatchObject_->propagateEvent();
+    else
+      myPropagateEvent();
 
-  waitDone();
+    waitDone();
+
+    event_ = 0;
+  }
 }
 
 void DispatchThread::destroy()
@@ -133,14 +149,29 @@ void DispatchThread::destroy()
     QThread::exit();
 }
 
+void DispatchThread::resetException()
+{
+  exception_ = false;
+}
+
 void DispatchThread::doEvent()
 {
+  log("debug") << "WQApplication: [thread] handling event";
   app_->attachThread(true);
 
-  app_->realNotify(*event_);
-  signalDone();
-
+  try {
+    app_->realNotify(*event_);
+  } catch (std::exception& e) {
+    log("error") << "WQApplication: [thread] Caught exception: " << e.what();
+    exception_ = true;
+  } catch (...) {
+    log("error") << "WQApplication: [thread] Caught exception";
+    exception_ = true;
+  }
   app_->attachThread(false);
+  log("debug") << "WQApplication: [thread] done handling event";
+
+  signalDone();
 }
 
 }

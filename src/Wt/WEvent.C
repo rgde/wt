@@ -12,7 +12,7 @@
 
 #include "WebRequest.h"
 #include "WebSession.h"
-#include "rapidxml/rapidxml.hpp"
+#include "3rdparty/rapidxml/rapidxml.hpp"
 
 namespace Wt {
   LOGGER("WEvent");
@@ -263,7 +263,8 @@ Key WKeyEvent::key() const
   else if (key == 8 || key == 9 || key == 13 || key == 27 || key == 32
 	   || (key >= 16 && key <= 18)
 	   || (key >= 33 && key <= 40)
-	   || (key >= 45 && key <= 46))
+	   || (key >= 45 && key <= 46)
+	   || (key >= 48 && key <= 57))
     return static_cast<Key>(key);
   else
     return Key_unknown;
@@ -286,8 +287,8 @@ WString WKeyEvent::text() const
     char buf[10]; // 4 is enough
     char *ptr = buf;
     try {
-      rapidxml::xml_document<>::insert_coded_character<0>(ptr, charCode());
-    } catch (rapidxml::parse_error& e) {
+      Wt::rapidxml::xml_document<>::insert_coded_character<0>(ptr, charCode());
+    } catch (Wt::rapidxml::parse_error& e) {
       LOG_ERROR("charcode: " << e.what());
       return WString();
     }

@@ -106,6 +106,18 @@ void WMessageBox::setDefaultButton(StandardButton button)
     setDefaultButton(b);
 }
 
+void WMessageBox::setEscapeButton(WPushButton *button)
+{
+  escapeButton_ = button;
+}
+
+void WMessageBox::setEscapeButton(StandardButton button)
+{
+  WPushButton *b = this->button(button);
+  if (b)
+    setEscapeButton(b);
+}
+
 void WMessageBox::setText(const WString& text)
 {
   text_->setText(text);
@@ -132,7 +144,7 @@ void WMessageBox::setIcon(Icon icon)
     iconW_->setName("info");
     break;
   case Warning:
-    iconW_->setName("warning-sign");
+    iconW_->setName("warning");
     break;
   case Critical:
     iconW_->setName("exclamation");

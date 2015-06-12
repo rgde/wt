@@ -22,6 +22,241 @@ newer version of Wt. It lists changes in the library that may break
 the way you build Wt, the way you configure Wt or the Wt API and
 behaviour.
 
+<h2>Release 3.3.4 (Mar 25, 2015)</h2>
+
+<p>
+ This release has a focus on bug fixes but also one or two new new features,
+ of which the following are the most notable:
+</p>
+
+<dl>
+  <dt>
+    Support for dedicated session processes with wthttp connector.
+  </dt>
+  <dd>
+    Until now, only the FastCGI connector allowed the use of dedicated
+    processes for individual sessions, by spawning a new process for
+    each new session. This functionality has also been added to the
+    wthttp connector. In this implementation, the manager process will
+    act as a reverse proxy to the dedicated session processes.
+
+    This has as major benefit that there is no longer a choice between
+    dedicated session processes on the one hand (supported by FastCGI)
+    and support for WebSockets on the other hand (supported by the
+    built-in httpd). In fact, there remains little reason to prefer
+    FastCGI over the built-in httpd: in those situations where you
+    want a proper http server as a front-end, you can still use
+    HAproxy or NGINX (or Apache, if you must) as a reverse proxy to
+    wthttp.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1WIdentityProxyModel.html">WIdentityProxyModel</a>
+  </dt>
+  <dd>
+    This new proxy model simply forwards the structure of the source
+    model, without any transformation, and can be used for
+    implementing proxy models that reimplement data(), but retain all
+    other characteristics of the source model.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1Chart_1_1WAbstractChart.html#ac895fb1d1437f51629b49246eda66e3d">Chart::WAbstractChart::setAutoLayoutEnabled()</a>
+  </dt>
+  <dd>
+    Until now, you were responsible for configuring the padding around
+    the chart area to accomodate for axis labels, titles, and
+    legend. While this is still the default behaviour, we added an
+    option to let the chart derive the required padding (using
+    approximate font-metrics available server-side).
+  </dd>
+
+
+  <dt>
+    <a href="classWt_1_1Chart_1_1WCartesianChart.html#a1c97590b1bd4ee9324822967d6e72333">Chart::WCartesianChart::setAxis()</a>
+  </dt>
+  <dd>
+    Whereas previously a chart axis was a "value class", it is now a
+    proper polyymorphic class, and you can provide your own
+    implementation. In this way you can customize things like for
+    example label strings.
+  </dd>  
+
+  <dt>
+    Several new features in the 3D charts library.
+  </dt>
+  <dd>
+    <ul>
+      <li><a href="classWt_1_1Chart_1_1WAbstractDataSeries3D.html#a0ac582c98fe58f36e0d60f11b5627656">
+	  setPointSprite()</a>: ability to define sprites for drawing
+	  a data series</li>
+      <li><a href="classWt_1_1Chart_1_1WAbstractGridData.html#a8f99da2ab56c80de400c90992c35f882">pickSurface()</a>:
+	find out which points on a surface are under a given pixel</li>
+      <li><a href="classWt_1_1Chart_1_1WAbstractGridData.html#afc0509b2dff1fa8dbb970266de21f7db">pickBar()</a>:
+	find out which points on a bar on are under a given pixel.</li>
+      <li><a href="classWt_1_1Chart_1_1WAbstractGridData.html#a09c065c802ff9b21d3c2a543e48f58b2">
+	  setIsoLevels()</a>:
+	draw iso lines (on the ground plane of the chart) corresponding
+	to selected z values.</li>
+      <li><a href="classWt_1_1Chart_1_1WAbstractGridData.html#ad74945761f9bfcc2ced42487468c5480">
+	  setClippingLinesEnabled()</a>:
+	ability to clip and optionally draw clipping planes
+      </li>
+      <li>
+	<a href="classWt_1_1Chart_1_1WCartesian3DChart.html#a8adb0ca981382e3e1435fe8e7fcf1d6e">
+	  setIntersectionsEnabled()</a>:
+	ability to draw surface-surface intersection lines.
+      </li>
+    </ul>
+  </dd>
+</dl>
+
+<hr>
+
+<h2>Release 3.3.3 (May 27, 2014)</h2>
+
+<p>
+ This release has a focus on bug fixes but also one or two new new features:
+</p>
+
+<dl>
+  <dt>
+    Improved Meta header support.
+  </dt>
+  <dd>
+    Because WApplication meta header API was restricted to only work
+    in certain circumstances, we have now added the ability to define
+    meta headers (with the option to apply them to specific user agents)
+    also in the configuration file.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1WWidget.html#ab4086c221a56e81dd067be47303b5862">WWidget::setDeferredToolTip()</a>
+    </dt>
+  <dd>
+    This function is an alternative to setToolTip(), useful when a
+    tooltip text is not trivial to fetch or create. Using this
+    function, the tool tip (HTML) text can now be loaded on-demand
+    instead of needing to be preset on (each) widget. This also works
+    for tooltips set from a WAbstractItemModel using the
+    new <a href="group__modelview.html#ga1d77c4de293aebfacbdde124de06b8b0">ItemHasDeferredTooltip</a>
+    item flag.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1WLineEdit.html#ae599502e317ed79d5a1a54dae12d3d10">WLineEdit::setInputMask()</a>
+    </dt>
+  <dd>
+    Support for input masks was added, which guides the user to enter
+    data in the correct format.
+  </dd>
+</dl>
+
+<hr>
+
+<h2>Release 3.3.2 (March 12, 2014)</h2>
+
+<p>
+ This release has a focus on bug fixes and a few larger new developments.
+</p>
+
+<h3>A) New classes:</h3>
+
+<dl>
+  <dt>
+    <a href="classWt_1_1Chart_1_1WCartesian3DChart.html">3D Charts
+    (Chart::WCartesian3DChart, ...)</a>
+  </dt>
+  <dd>
+    A 3D charting library was added, based on
+    <a href="classWt_1_1WGLWidget.html">WGLWidget</a>, and integrated
+    with the existing 2D charting framework.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1Dbo_1_1JsonSerializer.html">Dbo::JsonSerializer</a>
+  </dt>
+  <dd>
+    This is a utility which serializes Dbo objects (including
+    relations) to JSon, leveraging the same persist() function used
+    for serialization to the database.
+  </dd>
+
+</dl>
+
+<h3>B) Main improvements:</h3>
+
+<dl>
+  <dt>
+    <a href="classWt_1_1WBootstrapTheme.html">WBootstrapTheme</a>
+    </dt>
+  <dd>
+    Support for bootstrap version 3 was added, so now you have the
+    choice between botstrap version 2 or 3. Needless to say, you
+    should probably target version 3 for new development work if you
+    can live with its restricted browser support.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1WGLWidget.html">WGLWidget</a>
+    </dt>
+  <dd>
+    Next to the existing client-side WebGL-based implementation, a
+    server-side OpenGL-based implementation was added for fallback
+    scenarios where WebGL is not available, or when scene complexity
+    is so big that a server-side solution is simply better performing
+    because of lower bandwidth needed.
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1WRasterImage.html">WRasterImage</a>
+    </dt>
+  <dd>
+    Next to the GraphicsMagick-based implementation, a skia-based
+    implementation has been added (which provides much higher
+    performance most notably on Windows platforms).
+  </dd>
+
+  <dt>
+    <a href="classWt_1_1WString.html">WString</a>
+    </dt>
+  <dd>
+    Until now, Wt defaults to the C++ global locale for conversion
+    between a string literal (std::string, const char *) and
+    WString. In practice, UTF-8 is an (increasingly) better choice
+    since UTF-8 is a pragmatic encoding covering the entire Unicode
+    range, and the encoding used by the library throughout. We've now
+    added a setDefaultEncoding() function which can be used to
+    configure the default encoding as UTF-8.
+  </dd>
+
+  <dt>
+    wthttp HTTP/WebSockets front-end server
+  </dt>
+  <dd>
+    We've given the http front-end a much needed overhaul, making it
+    deal better with long-lived connections typical for WebSockets
+    applications, and fix some nasty issues at the same time.
+    We also took the opportunity to optimize its performance by
+    reducing the number of system calls for writing request
+    responses, and by avoiding memory allocations during request parsing.
+  </dd>
+</dl>
+
+<h3>C) Non-backwards compatible changes</h3>
+
+<dl>
+  <dt>
+    <a href="classWt_1_1WDatePicker.html">WDatePicker</a>,
+    <a href="classWt_1_1WDateEdit.html">WDateEdit</a>
+  </dt>
+  <dd>
+    The date pickers will now default to interpreting a single click
+    as a date selection and also closing the calendar.
+  </dd>
+</dl>
+<hr>
+
 <h2>Release 3.3.1 (October, 16 2013)</h2>
 
 <p>

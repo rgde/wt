@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <set>
+
 #include "Wt/WDateTime"
 #include "Wt/WEnvironment"
 #include "Wt/WStatelessSlot"
@@ -20,7 +21,9 @@ class WebRequest;
 class WebResponse;
 class WebStream;
 class DomElement;
+class EscapeOStream;
 class FileServe;
+class MetaHeader;
 
 class WApplication;
 class WWidget;
@@ -42,7 +45,7 @@ public:
   bool visibleOnly() const { return visibleOnly_; }
   void setVisibleOnly(bool how) { visibleOnly_ = how; }
   bool isRendered() const { return rendered_; }
-  void setRendered(bool how) { rendered_ = how; }
+  void setRendered(bool how);
 
   void needUpdate(WWidget *w, bool laterOnly);
   void doneUpdate(WWidget *w);
@@ -80,6 +83,8 @@ public:
   void streamRedirectJS(WStringStream& out, const std::string& redirect);
 
   bool checkResponsePuzzle(const WebRequest& request);
+
+  void setJSSynced(bool invisibleToo);
 
 private:
   struct CookieValue {
@@ -124,11 +129,11 @@ private:
   void loadStyleSheet(WStringStream& out, WApplication *app,
 		      const WCssStyleSheet& sheet);
   void loadStyleSheets(WStringStream& out, WApplication *app);
+  void removeStyleSheets(WStringStream& out, WApplication *app);
   int loadScriptLibraries(WStringStream& out, WApplication *app,
 			  int count = -1);
   void updateLoadIndicator(WStringStream& out, WApplication *app, bool all);
   void renderSetServerPush(WStringStream& out);
-  void setJSSynced(bool invisibleToo);
   void renderStyleSheet(WStringStream& out, const WCssStyleSheet& sheet,
 			WApplication *app);
 

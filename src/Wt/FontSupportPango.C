@@ -32,18 +32,14 @@ bool isEpsilonMore(double x, double limit) {
   return x - EPSILON > limit;
 }
 
-bool isEpsilonLess(double x, double limit) {
-  return x + EPSILON < limit;
-}
-
 double pangoUnitsToDouble(const int u) 
 {
-  return u / PANGO_SCALE;
+  return ((double)u) / PANGO_SCALE;
 }
 
 int pangoUnitsFromDouble(const double u)
 {
-  return (int) u * PANGO_SCALE;
+  return (int) (u * PANGO_SCALE);
 }
 
 /*
@@ -102,7 +98,7 @@ FontSupport::FontSupport(WPaintDevice *paintDevice)
 #if PANGO_VERSION_MAJOR > 1 || PANGO_VERSION_MINOR > 21
   context_ = pango_font_map_create_context(pangoFontMap);
 #else
-  context_ = pango_ft2_font_map_create_context(pangoFontMap);
+  context_ = pango_ft2_font_map_create_context(PANGO_FT2_FONT_MAP(pangoFontMap));
 #endif
 
   currentFont_ = 0;
@@ -411,23 +407,22 @@ WTextItem FontSupport::measureText(const WFont& font, const WString& text,
 	int cend = g_utf8_offset_to_pointer(s, end) - s;
 
 	WTextItem ti
-	  = measureText(font, WString::fromUTF8(utf8.substr(0, cend)),
+	  = measureText(font, WString::fromUTF8(utf8.substr(measured,
+							    cend - measured)),
 			-1, false);
 
-	if (isEpsilonMore(ti.width(), maxWidth)) {
-	  nextW = measureText(font, 
-			      WString::fromUTF8(utf8.substr(measured,
-							    cend - measured)),
-			      -1, false).width();
+	if (isEpsilonMore(w + ti.width(), maxWidth)) {
+	  nextW = ti.width();
 	  maxWidthReached = true;
 	  break;
 	} else {
 	  measured = cend;
 	  current = g_utf8_offset_to_pointer(s, i) - s;
-	  w = ti.width();
+	  w += ti.width();
 
 	  if (i == utflen) {
-	    w = measureText(font, WString::fromUTF8(utf8), -1, false).width();
+	    w += measureText(font, WString::fromUTF8(utf8.substr(measured)),
+			     -1, false).width();
 	    measured = utf8.length();
 	  }
 	}
@@ -442,6 +437,12 @@ WTextItem FontSupport::measureText(const WFont& font, const WString& text,
     if (maxWidthReached) {
       return WTextItem(WString::fromUTF8(utf8.substr(0, current)), w, nextW);
     } else {
+      /*
+       * For some reason, the sum of the individual widths is a bit less
+       * (for longer stretches of text), so we re-measure it !
+       */
+      w = measureText(font, WString::fromUTF8(utf8.substr(0, measured)),
+		      -1, false).width();
       return WTextItem(text, w);
     }
   } else {

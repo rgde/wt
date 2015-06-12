@@ -71,13 +71,40 @@ void addGroupBy(std::string& result, const std::string& groupBy,
   }
 }
 
+std::string addLimitQuery(const std::string& sql, int limit, int offset,
+			  LimitQuery limitQueryMethod)
+{
+  std::string result = sql;
+  
+  if (limitQueryMethod == Limit) {
+    if (limit != -1)
+      result += " limit ?";
+
+    if (offset != -1)
+      result += " offset ?";
+  }
+  else if (( limitQueryMethod == RowsFromTo )&&
+    ( limit != -1 || offset != -1) ){
+    result += " rows ? to ?";
+  }
+  else { // useRowsFromTo == Rownum
+    if (limit != -1 && offset == -1)
+      result = " select * from ( " + result + " ) where rownum <= ?";
+    else if (limit != -1 && offset != -1)
+      result = " select * from ( select row_.*, rownum rownum2 from ( " +
+	result + " ) row_ where rownum <= ?) where rownum2 > ?";
+  }
+
+  return result;
+}
 std::string completeQuerySelectSql(const std::string& sql,
 				   const std::string& where,
 				   const std::string& groupBy,
+				   const std::string& having,
 				   const std::string& orderBy,
 				   int limit, int offset,
 				   const std::vector<FieldInfo>& fields,
-				   bool useRowsFromTo)
+				   LimitQuery limitQueryMethod)
 {
   std::string result = sql;
 
@@ -87,28 +114,23 @@ std::string completeQuerySelectSql(const std::string& sql,
   if (!groupBy.empty())
     addGroupBy(result, groupBy, fields);
 
+  if (!having.empty())
+    result += " having " + having;
+
   if (!orderBy.empty())
     result += " order by " + orderBy;
 
-  if (!useRowsFromTo) {
-    if (limit != -1)
-      result += " limit ?";
-
-    if (offset != -1)
-      result += " offset ?";
-  } else if (limit != -1 || offset != -1)
-    result += " rows ? to ?";
-
-  return result;
+  return addLimitQuery(result, limit, offset, limitQueryMethod);
 }
 
 std::string createQuerySelectSql(const std::string& from,
 				 const std::string& where,
 				 const std::string& groupBy,
+				 const std::string& having,
 				 const std::string& orderBy,
 				 int limit, int offset,
 				 const std::vector<FieldInfo>& fields,
-				 bool useRowsFromTo)
+				 LimitQuery limitQueryMethod)
 {
   std::string result = "select " + selectColumns(fields) + ' ' + from;
 
@@ -118,33 +140,33 @@ std::string createQuerySelectSql(const std::string& from,
   if (!groupBy.empty())
     addGroupBy(result, groupBy, fields);
 
+  if (!having.empty())
+    result += " having " + having;
+
   if (!orderBy.empty())
     result += " order by " + orderBy;
 
-  if (!useRowsFromTo) {
-    if (limit != -1)
-      result += " limit ?";
-
-    if (offset != -1)
-      result += " offset ?";
-  } else if (limit != -1 || offset != -1)
-    result += " rows ? to ?";
-
-  return result;
+  return addLimitQuery(result, limit, offset, limitQueryMethod);
 }
 
-std::string createWrappedQueryCountSql(const std::string& query)
+std::string createWrappedQueryCountSql(const std::string& query,
+				       bool requireSubqueryAlias)
 {
-  return "select count(1) from (" + query + ") as dbocount";
+  if (requireSubqueryAlias)
+    return "select count(1) from (" + query + ") dbocount";
+  else
+    return "select count(1) from (" + query + ")";
 }
 
 std::string createQueryCountSql(const std::string& query,
 				const std::string& from,
 				const std::string& where,
 				const std::string& groupBy,
+				const std::string& having,
 				const std::string& orderBy,
 				int limit, int offset,
-				bool useRowsFromTo)
+				LimitQuery limitQueryMethod,
+				bool requireSubqueryAlias)
 {
   /*
    * If there is a " group by ", then we cannot simply substitute
@@ -163,25 +185,17 @@ std::string createQueryCountSql(const std::string& query,
    * parameter.
    */
   if (!groupBy.empty() || ifind(from, "group by") != std::string::npos
+      || !having.empty() || ifind(from, "having") != std::string::npos
       || !orderBy.empty() || ifind(from, "order by") != std::string::npos
       || limit != -1 || offset != -1)
-    return createWrappedQueryCountSql(query);
+    return createWrappedQueryCountSql(query, requireSubqueryAlias);
   else {
     std::string result = "select count(1) " + from;
 
     if (!where.empty())
       result += " where " + where;
 
-    if (!useRowsFromTo) {
-      if (limit != -1)
-	result += " limit ?";
-
-      if (offset != -1)
-	result += " offset ?";
-    } else if (limit != -1 || offset != -1)
-      result += " rows ? to ?";
-
-    return result;
+    return addLimitQuery(result, limit, offset, limitQueryMethod);
   }
 }
 

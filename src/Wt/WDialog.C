@@ -6,6 +6,7 @@
 #include "Wt/WApplication"
 #include "Wt/WContainerWidget"
 #include "Wt/WDialog"
+#include "Wt/WEnvironment"
 #include "Wt/WException"
 #include "Wt/WVBoxLayout"
 #include "Wt/WPushButton"
@@ -13,10 +14,10 @@
 #include "Wt/WText"
 #include "Wt/WTheme"
 #include "Wt/Utils"
+#include "Wt/WGlobal"
 
 #include "Resizable.h"
 #include "WebController.h"
-#include "WebSession.h"
 #include "WebUtils.h"
 
 #include <boost/algorithm/string.hpp>
@@ -66,6 +67,8 @@ public:
 
     if (dialogs_.empty())
       delete this;
+    else
+      scheduleRender();
   }
 
   virtual bool isExposed(WWidget *w) {
@@ -84,6 +87,13 @@ public:
 
   bool isTopDialogRendered(WDialog *dialog) const {
     return dialog->id() == topDialogId_;
+  }
+
+  void bringToFront(WDialog *dialog) {
+    if (Utils::erase(dialogs_, dialog)) {
+      dialogs_.push_back(dialog);
+      scheduleRender();
+    }
   }
 
 protected:
@@ -169,6 +179,8 @@ private:
 
 WDialog::WDialog(WObject *parent)
   : WPopupWidget(new WTemplate(tr("Wt.WDialog.template")), parent),
+    moved_(this, "moved"),
+    resized_(this, "resized"),
     finished_(this)
 {
   create();
@@ -176,6 +188,8 @@ WDialog::WDialog(WObject *parent)
 
 WDialog::WDialog(const WString& windowTitle, WObject *parent)
   : WPopupWidget(new WTemplate(tr("Wt.WDialog.template")), parent),
+    moved_(this, "moved"),
+    resized_(this, "resized"),
     finished_(this)
 {
   create();
@@ -190,6 +204,7 @@ void WDialog::create()
   resizable_ = false;
   recursiveEventLoop_ = false;
   escapeIsReject_ = false;
+  autoFocus_ = true;
   impl_ = dynamic_cast<WTemplate *>(implementation());
 
   const char *CSS_RULES_NAME = "Wt::WDialog";
@@ -242,7 +257,8 @@ void WDialog::create()
   LOAD_JAVASCRIPT(app, "js/WDialog.js", "WDialog", wtjs1);
 
   WContainerWidget *layoutContainer = new WContainerWidget();
-  layoutContainer->setStyleClass("dialog-layout");
+  wApp->theme()->apply(this, layoutContainer, DialogContent);
+  layoutContainer->addStyleClass("dialog-layout");
   WVBoxLayout *layout = new WVBoxLayout(layoutContainer);
   layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(0);
@@ -269,6 +285,7 @@ void WDialog::create()
    */
   if (app->environment().ajax()) {
     setAttributeValue("style", "visibility: hidden");
+    impl_->setMargin(0, All);
 
     /*
      * This is needed for animations only, but setting absolute or
@@ -316,9 +333,9 @@ void WDialog::setResizable(bool resizable)
       setJavaScriptMember
 	(" Resizable",
 	 "(new " WT_CLASS ".Resizable("
-	 WT_CLASS "," + jsRef() + ")).onresize(function(w, h) {"
+	 WT_CLASS "," + jsRef() + ")).onresize(function(w, h, done) {"
 	 "var obj = $('#" + id() + "').data('obj');"
-	 "if (obj) obj.onresize(w, h);"
+	 "if (obj) obj.onresize(w, h, done);"
 	 " });");
     }
   }
@@ -364,7 +381,14 @@ void WDialog::render(WFlags<RenderFlag> flags)
 		 + app->javaScriptClass() + "," + jsRef()
 		 + "," + titleBar_->jsRef()
 		 + "," + (centerX ? "1" : "0")
-		 + "," + (centerY ? "1" : "0") + ");");
+		 + "," + (centerY ? "1" : "0") 
+		 + "," + (moved_.isConnected()
+			  ? '"' + moved_.name() + '"' 
+			  : "null")
+		 + "," + (resized_.isConnected()
+			  ? '"' + resized_.name() + '"' 
+			  : "null")
+		 + ");");
 
     /*
      * When a dialog is shown immediately for a new session, the recentering
@@ -378,10 +402,17 @@ void WDialog::render(WFlags<RenderFlag> flags)
       Utils::replace(js, "$centerY", centerY ? "1" : "0");
 
       impl_->bindString
-	("center-script", "<script>" + js + "</script>", XHTMLUnsafeText);
+	("center-script", "<script>" + Utils::htmlEncode(js)
+	 + "</script>", XHTMLUnsafeText);
     } else
       impl_->bindEmpty("center-script");
   }
+
+  if (!isModal())
+    impl_->mouseWentDown().connect(this, &WDialog::bringToFront);
+
+  if ( (flags & RenderFull) && autoFocus_)
+    impl_->setFirstFocus();
 
   WPopupWidget::render(flags);
 }
@@ -406,8 +437,8 @@ WString WDialog::caption() const
 void WDialog::setWindowTitle(const WString& windowTitle)
 {
   caption_->setText
-    (WString::fromUTF8("<h3>" + Utils::htmlEncode(windowTitle.toUTF8())
-		       + "</h3>"));
+    (WString::fromUTF8("<h4>" + Utils::htmlEncode(windowTitle.toUTF8())
+		       + "</h4>"));
 }
 
 WString WDialog::windowTitle() const
@@ -428,7 +459,8 @@ void WDialog::setClosable(bool closable)
 {
   if (closable) {
     if (!closeIcon_) {
-      closeIcon_ = new WText(titleBar_);
+      closeIcon_ = new WText();
+      titleBar_->insertWidget(0, closeIcon_);
       WApplication::instance()->theme()->apply(this, closeIcon_,
 					       DialogCloseIconRole);
       closeIcon_->clicked().connect(this, &WDialog::reject);
@@ -462,7 +494,7 @@ WDialog::DialogCode WDialog::exec(const WAnimation& animation)
       throw WException("Test case must close dialog");
   } else {
     do {
-      app->session()->doRecursiveEventLoop();
+      app->waitForEvent();
     } while (recursiveEventLoop_);
   }
 
@@ -504,7 +536,7 @@ void WDialog::setModal(bool modal)
 void WDialog::onDefaultPressed()
 {
   DialogCover *c = cover();
-  if (c && c->isTopDialogRendered(this)) {
+  if (footer_ && c && c->isTopDialogRendered(this)) {
     for (int i = 0; i < footer()->count(); ++i) {
       WPushButton *b = dynamic_cast<WPushButton *>(footer()->widget(i));
       if (b && b->isDefault()) {
@@ -530,15 +562,17 @@ void WDialog::setHidden(bool hidden, const WAnimation& animation)
     if (!hidden) {
       WApplication *app = WApplication::instance();
 
-      for (int i = 0; i < footer()->count(); ++i) {
-	WPushButton *b = dynamic_cast<WPushButton *>(footer()->widget(i));
-	if (b && b->isDefault()) {
-	  enterConnection1_ = app->globalEnterPressed()
-	    .connect(this, &WDialog::onDefaultPressed);
+      if (footer_) {
+	for (int i = 0; i < footer()->count(); ++i) {
+	  WPushButton *b = dynamic_cast<WPushButton *>(footer()->widget(i));
+	  if (b && b->isDefault()) {
+	    enterConnection1_ = app->globalEnterPressed()
+	      .connect(this, &WDialog::onDefaultPressed);
 
-	  enterConnection2_ = impl_->enterPressed()
-	    .connect(this, &WDialog::onDefaultPressed);
-	  break;
+	    enterConnection2_ = impl_->enterPressed()
+	      .connect(this, &WDialog::onDefaultPressed);
+	    break;
+	  }
 	}
       }
 
@@ -586,8 +620,18 @@ void WDialog::setHidden(bool hidden, const WAnimation& animation)
 void WDialog::positionAt(const WWidget *widget, Orientation orientation)
 {
   setPositionScheme(Absolute);
-  setOffsets(0, Left | Top);
+  if (wApp->environment().javaScript())
+    setOffsets(0, Left | Top);
   WPopupWidget::positionAt(widget, orientation);
+}
+
+void WDialog::positionAt(const Wt::WMouseEvent& ev)
+{
+  setPositionScheme(Fixed);
+  if (wApp->environment().javaScript()) {
+	setOffsets(ev.window().x, Left);
+	setOffsets(ev.window().y, Top);
+  }
 }
 
 DialogCover *WDialog::cover() 
@@ -602,6 +646,16 @@ DialogCover *WDialog::cover()
       return new DialogCover();
   } else
     return 0;
+}
+
+void WDialog::bringToFront(const WMouseEvent &e)
+{
+  if (e.button() == WMouseEvent::LeftButton &&
+      e.modifiers() == NoModifier) {
+    doJavaScript("jQuery.data(" + jsRef() + ", 'obj').bringToFront()");
+    DialogCover *c = cover();
+    c->bringToFront(this);
+  }
 }
 
 }

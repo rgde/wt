@@ -321,7 +321,11 @@ public:
    *
    * \sa setTarget()
    */
-  AnchorTarget target() const { return linkState_.target; }
+  AnchorTarget target() const { return linkState_.link.target(); }
+
+  virtual bool canReceiveFocus() const;
+  virtual int tabIndex() const;
+  virtual bool setFirstFocus();
 
 private:
   static const int BIT_LINK_CHANGED = 0;
@@ -332,7 +336,6 @@ private:
     ~LinkState();
 
     WLink link;
-    AnchorTarget target;
     JSlot *clickJS; 
   };
 

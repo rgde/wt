@@ -13,10 +13,10 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#ifndef WIN32
+#ifndef WT_WIN32
 #include <unistd.h>
 #endif
-#ifdef WIN32
+#ifdef WT_WIN32
 #include <process.h> // for getpid()
 #include <winsock2.h> // for gethostname()
 #endif
@@ -59,6 +59,7 @@ Configuration::Configuration(Wt::WLogger& logger, bool silent)
     sslCipherList_(),
     sessionIdPrefix_(),
     accessLog_(),
+    parentPort_(-1),
     maxMemoryRequestSize_(128*1024)
 {
   char buf[100];
@@ -75,7 +76,8 @@ Configuration::~Configuration()
   unlink(pidPath_.c_str());
 }
 
-void Configuration::createOptions(po::options_description& options)
+void Configuration::createOptions(po::options_description& options,
+			          po::options_description &visibleOptions)
 {
   po::options_description general("General options");
   general.add_options()
@@ -197,14 +199,21 @@ void Configuration::createOptions(po::options_description& options)
      "\"TLSv1+HIGH:!SSLv2\"\n")
     ;
 
-  options.add(general).add(http).add(https);
+  po::options_description hidden("Hidden options");
+  hidden.add_options()
+    ("parent-port", po::value<int>(&parentPort_)->default_value(parentPort_))
+  ;
+
+  options.add(general).add(http).add(https).add(hidden);
+  visibleOptions.add(general).add(http).add(https);
 }
 
 void Configuration::setOptions(int argc, char **argv,
 			       const std::string& configurationFile)
 {
   po::options_description all_options("Allowed options");
-  createOptions(all_options);
+  po::options_description visible_options("Allowed options");
+  createOptions(all_options, visible_options);
 
   try {
     po::variables_map vm;
@@ -226,7 +235,7 @@ void Configuration::setOptions(int argc, char **argv,
     po::notify(vm);
 
     if (vm.count("help")) {
-      std::cout << all_options << std::endl;
+      std::cout << visible_options << std::endl;
 
       if (!configurationFile.empty())
 	std::cout << "Settings may be set in the configuration file "
@@ -245,7 +254,20 @@ void Configuration::setOptions(int argc, char **argv,
   } catch (...) {
     throw Wt::WServer::Exception("Exception of unknown type!\n");
   }
+
+#ifndef WT_WIN32
+  for (int i = 0; i < argc; ++i) {
+    options_.push_back(argv[i]);
+  }
+#endif // !WT_WIN32
 }
+
+#ifndef WT_WIN32
+std::vector<std::string> Configuration::options() const
+{
+  return options_;
+}
+#endif // !WT_WIN32
 
 void Configuration::readOptions(const po::variables_map& vm)
 {
@@ -272,6 +294,11 @@ void Configuration::readOptions(const po::variables_map& vm)
   if (vm.count("docroot")) {
     docRoot_ = vm["docroot"].as<std::string>();
 
+    if (docRoot_ == "") {
+      throw Wt::WServer::Exception(
+        "Document root was not set, or was set to the empty path. "
+        "Use --docroot to set the HTML root directory.");
+    }
     Wt::Utils::SplitVector parts;
     boost::split(parts, docRoot_, boost::is_any_of(";"));
 
@@ -410,7 +437,7 @@ void Configuration::checkPath(std::string& result,
 				     + "\") must be a regular file.");
       }
     }
-#ifndef WIN32
+#ifndef WT_WIN32
     if (options & Private) {
       if (t.st_mode & (S_IRWXG | S_IRWXO)) {
 	throw Wt::WServer::Exception(varDescription + " (\"" + result

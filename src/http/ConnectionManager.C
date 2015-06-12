@@ -52,7 +52,7 @@ void ConnectionManager::stop(ConnectionPtr c)
   if(i != connections_.end()) {
     connections_.erase(i);
   } else {
-#ifndef WIN32
+#ifndef WT_WIN32
     /*
      * Error you may get when multiple transmitMore() were outstanding
      * during server push, and the last one indicated that the connection
@@ -77,8 +77,23 @@ void ConnectionManager::stop(ConnectionPtr c)
 
 void ConnectionManager::stopAll()
 {
-  while(connections_.size())
-    stop(*connections_.begin());
+  for (;;) {
+    ConnectionPtr ptr;
+
+    {
+#ifdef WT_THREADED
+      boost::mutex::scoped_lock lock(mutex_);
+#endif // WT_THREADED
+
+      if (connections_.size())
+	ptr = *connections_.begin();
+    }
+
+    if (ptr)
+      stop(ptr);
+    else
+      break;
+  }
 }
 
 } // namespace server

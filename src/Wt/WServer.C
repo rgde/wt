@@ -3,7 +3,9 @@
  *
  * See the LICENSE file for terms of use.
  */
-#if !defined(_WIN32)
+#include "Wt/WConfig.h"
+
+#if !defined(WT_WIN32)
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -76,6 +78,11 @@ void WServer::setLocalizedStrings(WLocalizedStrings *stringResolver)
   localizedStrings_ = stringResolver;
 }
 
+WLocalizedStrings *WServer::localizedStrings()
+{
+  return localizedStrings_;
+}
+
 void WServer::setIOService(WIOService& ioService)
 {
   if (ioService_) {
@@ -126,6 +133,11 @@ void WServer::setConfiguration(const std::string& file,
   application_ = application;
 }
 
+WLogger& WServer::logger()
+{
+  return logger_;
+}
+
 WLogEntry WServer::log(const std::string& type) const
 {
   WLogEntry e = logger_.entry(type);
@@ -166,6 +178,11 @@ Configuration& WServer::configuration()
   return *configuration_;
 }
 
+WebController *WServer::controller()
+{
+  return webController_;
+}
+
 bool WServer::readConfigurationProperty(const std::string& name,
 					std::string& value) const
 {
@@ -178,6 +195,17 @@ void WServer::post(const std::string& sessionId,
 		   const boost::function<void ()>& fallbackFunction)
 {
   schedule(0, sessionId, function, fallbackFunction);
+}
+
+void WServer::postAll(const boost::function<void ()>& function)
+{
+  if(!webController_) return;
+
+  std::vector<std::string> sessions = webController_->sessions();
+  for (std::vector<std::string>::const_iterator i = sessions.begin();
+      i != sessions.end(); ++i) {
+    schedule(0, *i, function);
+  }
 }
 
 void WServer::schedule(int milliSeconds,
@@ -229,7 +257,7 @@ void WServer::removeEntryPoint(const std::string& path){
 
 void WServer::restart(int argc, char **argv, char **envp)
 {
-#ifndef WIN32
+#ifndef WT_WIN32
   char *path = realpath(argv[0], 0);
 
   // Try a few times since this may fail because we have an incomplete
@@ -249,11 +277,18 @@ void WServer::setCatchSignals(bool catchSignals)
   CatchSignals = catchSignals;
 }
 
-#if defined(_WIN32) && defined(WT_THREADED)
+#if defined(WT_WIN32) && defined(WT_THREADED)
 
 boost::mutex     terminationMutex;
 bool             terminationRequested = false;
 boost::condition terminationCondition;
+
+void WServer::terminate()
+{
+  boost::mutex::scoped_lock terminationLock(terminationMutex);
+  terminationRequested = true;
+  terminationCondition.notify_all(); // should be just 1
+}
 
 BOOL WINAPI console_ctrl_handler(DWORD ctrl_type)
 {
@@ -264,20 +299,19 @@ BOOL WINAPI console_ctrl_handler(DWORD ctrl_type)
   case CTRL_CLOSE_EVENT:
   case CTRL_SHUTDOWN_EVENT:
     {
-      boost::mutex::scoped_lock terminationLock(terminationMutex);
-      terminationRequested = true;
-      terminationCondition.notify_all(); // should be just 1
+      WServer::terminate();
       return TRUE;
     }
   default:
     return FALSE;
   }
 }
+
 #endif
 
 int WServer::waitForShutdown(const char *restartWatchFile)
 {
-#if !defined(WIN32)
+#if !defined(WT_WIN32)
   if (!CatchSignals) {
     for(;;)
       sleep(0x1<<16);
@@ -286,7 +320,7 @@ int WServer::waitForShutdown(const char *restartWatchFile)
 
 #ifdef WT_THREADED
 
-#if !defined(_WIN32)
+#if !defined(WT_WIN32)
   sigset_t wait_mask;
   sigemptyset(&wait_mask);
 
@@ -350,6 +384,20 @@ int WServer::waitForShutdown(const char *restartWatchFile)
 void WServer::expireSessions()
 {
   webController_->expireSessions();
+}
+
+void WServer::scheduleStop()
+{
+#ifdef WT_THREADED
+  #ifndef WT_WIN32
+    kill(getpid(), SIGTERM);
+  #else // WT_WIN32
+    terminate();
+  #endif // WT_WIN32
+#else // !WT_THREADED
+  if (!stopCallback_.empty())
+    stopCallback_();
+#endif // WT_THREADED
 }
 
 }

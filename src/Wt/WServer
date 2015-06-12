@@ -81,6 +81,18 @@ public:
     Exception(const std::string& what);
   };
 
+#ifndef WT_TARGET_JAVA
+  /*! \class SessionInfo
+   *
+   * \brief Contains the information for one session.
+   */
+  struct WT_API SessionInfo
+  {
+    int64_t     processId; //!< The process id of the process the session is running in.
+    std::string sessionId; //!< The session id.
+  };
+#endif // WT_TARGET_JAVA
+
   /*! \brief Creates a new server instance.
    *
    * The \p wtApplicationPath is used to match specific
@@ -102,6 +114,22 @@ public:
   WTCONNECTOR_API
     WServer(const std::string& wtApplicationPath = std::string(),
 	    const std::string& wtConfigurationFile = std::string());
+
+  /*! \brief Creates a new server instance and configures it.
+   *
+   * This is equivalent to:
+   * \code
+    WServer server(argv[0]);
+    server.setServerConfiguration(argc, argv, wtConfigurationFile);
+    \endcode
+   *
+   * \throws Exception : indicates a configuration problem.
+   *
+   * \sa WServer(const std::string&, const std::string&)
+   * \sa setServerConfiguration()
+   */
+  WTCONNECTOR_API
+    WServer(int argc, char *argv[], const std::string& wtConfigurationFile = std::string());
 
   /*! \brief Destructor.
    *
@@ -247,6 +275,21 @@ public:
    */
   WTCONNECTOR_API bool isRunning() const;
 
+  /*! \brief Starts the server, waits for shutdown, then stops the server.
+   *
+   * This is equivalent to:
+   * \code
+    if (start()) {
+      WServer::waitForShutdown();
+      stop();
+    }
+    \endcode
+   * \sa start()
+   * \sa stop()
+   * \sa waitForShutdown()
+   */
+  WTCONNECTOR_API void run();
+
   /*! \brief Resumes the server.
    *
    * This closes and reopens the listen socket(s) for accepting new
@@ -264,7 +307,7 @@ public:
    *
    * This method is convenient if you want to customize how the server
    * is started (by instantiating a WServer object yourself, instead
-   * of using Wt::Wrun()), but still want to use %Wt as a standalone
+   * of using Wt::WRun()), but still want to use %Wt as a standalone
    * server that cleanly terminates on interruption.
    *
    * This will also catch SIGHUP, to reread the configuration file.
@@ -331,6 +374,12 @@ public:
 	           const boost::function<void ()>& fallBackFunction
 	             = boost::function<void ()>());
 
+  /*! \brief Posts a function to all currently active sessions.
+   *
+   * \sa post()
+   */
+  WT_API void postAll(const boost::function<void ()>& function);
+
   WT_API void schedule(int milliSeconds,
 		       const std::string& sessionId,
 		       const boost::function<void ()>& function,
@@ -386,16 +435,38 @@ public:
    *
    * The default value is 0.
    */
-  void setLocalizedStrings(WLocalizedStrings *stringResolver);
+  WT_API void setLocalizedStrings(WLocalizedStrings *stringResolver);
   
   /*! \brief Sets the resource object that provides localized strings.
    *
    * \sa setLocalizedStrings()
    */
-  WLocalizedStrings *localizedStrings() { return localizedStrings_; }
+  WT_API WLocalizedStrings *localizedStrings();
 
 #ifndef WT_TARGET_JAVA
-  WLogger& logger() { return logger_; }
+
+  /*! \brief Retrieve information on all sessions.
+   *
+   * This is only implemented for the wthttp connector.
+   *
+   * If the dedicated process session policy is used, only the original
+   * process has access to the full list of sessions. Public resources
+   * (those registered with addResource()) run in the original process,
+   * so they can access this list.
+   */
+  WTCONNECTOR_API std::vector<SessionInfo> sessions() const;
+
+  /*! \brief Returns the logger instance.
+   *
+   * This is the logger class used in WApplication::log() and
+   * Wt::log() functions.
+   */
+  WT_API WLogger& logger();
+
+  /*! \brief Adds an entry to the log.
+   *
+   * \sa Wt::log(), WApplication::log()
+   */
   WT_API WLogEntry log(const std::string& type) const;
 
   WT_API void initLogger(const std::string& logFile,
@@ -406,7 +477,15 @@ public:
 
   WT_API Configuration& configuration();
 
-  WebController *controller() { return webController_; }
+  WT_API WebController *controller();
+
+#ifndef WT_TARGET_JAVA
+  WT_API void scheduleStop();
+#endif // WT_TARGET_JAVA
+
+#ifdef WT_WIN32
+  WT_API static void terminate();
+#endif // WT_WIN32
 
 private:
   WebController *webController_;
@@ -440,6 +519,9 @@ private:
 
   WT_API static WServer *instance_;
   boost::function<std::string (std::size_t max_length, int purpose)> sslPasswordCallback_;
+#ifndef WT_TARGET_JAVA
+  boost::function<void ()> stopCallback_;
+#endif // WT_TARGET_JAVA
 };
 
 }

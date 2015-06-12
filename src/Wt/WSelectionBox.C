@@ -62,6 +62,15 @@ void WSelectionBox::setSelectedIndexes(const std::set<int>& selection)
   repaint();
 }
 
+const std::set<int>& WSelectionBox::selectedIndexes() const
+{
+  if (selectionMode_ != ExtendedSelection)
+    throw WException("WSelectionBox::setSelectedIndexes() can only be used "
+		     "for an ExtendedSelection mode");
+
+  return selection_;
+}
+
 void WSelectionBox::clearSelection()
 {
   if (selectionMode_ == ExtendedSelection)
@@ -100,14 +109,15 @@ void WSelectionBox::updateDom(DomElement& element, bool all)
     configChanged_ = false;
   }
 
-  if (selectionMode_ == ExtendedSelection)
+  if (selectionMode_ == ExtendedSelection) {
     if (selectionChanged_ && !all) {
       for (int i = 0; i < count(); ++i) {
 	element.callMethod("options[" + boost::lexical_cast<std::string>(i)
 			+ "].selected=" + (isSelected(i) ? "true" : "false"));
       }
-      selectionChanged_ = false;
     }
+    selectionChanged_ = false;
+  }
 
   WComboBox::updateDom(element, all);
 }

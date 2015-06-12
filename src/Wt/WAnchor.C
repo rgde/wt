@@ -16,8 +16,7 @@
 namespace Wt {
 
 WAnchor::LinkState::LinkState()
-  : target(TargetSelf),
-    clickJS(0)
+  : clickJS(0)
 { }
 
 WAnchor::LinkState::~LinkState()
@@ -202,8 +201,8 @@ WResource *WAnchor::resource() const
 
 void WAnchor::setTarget(AnchorTarget target)
 {
-  if (linkState_.target != target) {
-    linkState_.target = target;
+  if (linkState_.link.target() != target) {
+    linkState_.link.setTarget(target);
     flags_.set(BIT_TARGET_CHANGED);
   }
 }
@@ -281,6 +280,26 @@ void WAnchor::enableAjax()
   WContainerWidget::enableAjax();
 }
 
+bool WAnchor::canReceiveFocus() const
+{
+  return true;
+}
+
+int WAnchor::tabIndex() const
+{
+  int result = WContainerWidget::tabIndex();
+
+  if (result == std::numeric_limits<int>::min())
+    return 0;
+  else
+    return result;
+}
+
+bool WAnchor::setFirstFocus()
+{
+  return false;
+}
+
 void WAnchor::updateDom(DomElement& element, bool all)
 {
   bool needsUrlResolution = false;
@@ -315,7 +334,7 @@ bool WAnchor::renderHRef(WInteractWidget *widget,
      * From 但浩亮: setRefInternalPath() and setTarget(TargetNewWindow)
      * does not work without the check below:
      */
-    if (linkState.target == TargetSelf) {
+    if (linkState.link.target() == TargetSelf) {
       linkState.clickJS
 	= linkState.link.manageInternalPathChange(app, widget,
 						  linkState.clickJS);
@@ -328,7 +347,7 @@ bool WAnchor::renderHRef(WInteractWidget *widget,
 
     std::string href = url;
     element.setAttribute("href", href);
-    return !app->environment().hashInternalPaths()
+    return !app->environment().internalPathUsingFragments()
       && href.find("://") == std::string::npos && href[0] != '/';
   }
 
@@ -337,7 +356,7 @@ bool WAnchor::renderHRef(WInteractWidget *widget,
 
 void WAnchor::renderHTarget(LinkState& linkState, DomElement& element, bool all)
 {
-  switch (linkState.target) {
+  switch (linkState.link.target()) {
   case TargetSelf:
     if (!all)
       element.setProperty(PropertyTarget, "_self");

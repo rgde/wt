@@ -33,26 +33,42 @@ class WebSession;
 class WApplication;
 class WServer;
 
-#ifndef WT_CNOR
+#ifdef WT_CNOR
+class Runnable {
+public:
+  void run();
+};
+
+typedef Runnable *Function;
+
+#define WT_CALL_FUNCTION(f) (f)->run();
+
+#else
+typedef boost::function<void ()>  Function;
+#define WT_CALL_FUNCTION(f) (f)();
+#endif
+
 /*
  * An event to be delivered to a session which is not caused by a web
  * request (or, probably not one for that session).
  */
 struct ApplicationEvent {
+  ApplicationEvent() { }
+
   ApplicationEvent(const std::string& aSessionId,
-		   const boost::function<void ()>& aFunction,
-                   const boost::function<void ()>& aFallbackFunction
-		     = boost::function<void ()>())
+		   const Function& aFunction,
+                   const Function& aFallbackFunction = Function())
     : sessionId(aSessionId),
       function(aFunction),
       fallbackFunction(aFallbackFunction)
   { }
 
+  bool empty() const { return !function; }
+
   std::string sessionId;
-  boost::function<void ()> function;
-  boost::function<void ()> fallbackFunction;
+  Function function;
+  Function fallbackFunction;
 };
-#endif
 
 /*
  * The controller handle incoming request, in handleRequest().
@@ -104,12 +120,13 @@ public:
   bool handleApplicationEvent(const ApplicationEvent& event);
 #endif // WT_CNOR
 
+  std::vector<std::string> sessions();
   bool expireSessions();
   void start();
   void shutdown();
 
-  static std::string sessionFromCookie(std::string cookies,
-				       std::string scriptName,
+  static std::string sessionFromCookie(const char *cookies,
+				       const std::string& scriptName,
 				       int sessionIdLength);
 
   typedef std::map<int, WSocketNotifier *> SocketNotifierMap;
@@ -166,7 +183,7 @@ private:
 
   const EntryPoint *getEntryPoint(WebRequest *request);
 
-  static std::string appSessionCookie(std::string url);
+  static std::string appSessionCookie(const std::string& url);
 
 #endif // WT_TARGET_JAVA
 

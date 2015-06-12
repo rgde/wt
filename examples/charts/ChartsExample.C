@@ -29,7 +29,34 @@
 
 using namespace Wt;
 using namespace Wt::Chart;
+
 namespace {
+
+  /*
+   * A standard item which converts text edits to numbers
+   */
+  class NumericItem : public WStandardItem {
+  public:
+    virtual NumericItem *clone() const {
+      return new NumericItem();
+    }
+
+    virtual void setData(const boost::any &data, int role = UserRole) {
+      boost::any dt;
+
+      if (role == EditRole) {
+	std::string s = Wt::asString(data).toUTF8();
+	char *endptr;
+	double d = strtod(s.c_str(), &endptr);
+	if (*endptr == 0)
+	  dt = boost::any(d);
+	else
+	  dt = data;
+      }
+
+      WStandardItem::setData(data, role);
+    }
+  };
 
   /*
    * Reads a CSV file as an (editable) standard item model.
@@ -38,6 +65,7 @@ namespace {
 				  WContainerWidget *parent)
   {
     WStandardItemModel *model = new WStandardItemModel(0, 0, parent);
+    model->setItemPrototype(new NumericItem());
     std::ifstream f(fname.c_str());
 
     if (f) {
@@ -136,9 +164,8 @@ CategoryExample::CategoryExample(Wt::WContainerWidget *parent):
   chart->setXSeriesColumn(0);    // set the column that holds the categories
   chart->setLegendEnabled(true); // enable the legend
 
-  // Provide space for the X and Y axis and title. 
-  chart->setPlotAreaPadding(80, Left);
-  chart->setPlotAreaPadding(40, Top | Bottom);
+  // Automatically layout chart (space for axes, legend, ...)
+  chart->setAutoLayoutEnabled(true);
 
   /*
    * Add all (but first) column as bar series
@@ -228,9 +255,8 @@ TimeSeriesExample::TimeSeriesExample(Wt::WContainerWidget *parent):
   chart->setType(ScatterPlot);            // set type to ScatterPlot
   chart->axis(XAxis).setScale(DateScale); // set scale of X axis to DateScale
 
-  // Provide space for the X and Y axis and title. 
-  chart->setPlotAreaPadding(80, Left);
-  chart->setPlotAreaPadding(40, Top | Bottom);
+  // Automatically layout chart (space for axes, legend, ...)
+  chart->setAutoLayoutEnabled();
 
   /*
    * Add first two columns as line series
@@ -255,6 +281,7 @@ ScatterPlotExample::ScatterPlotExample(WContainerWidget *parent):
   new WText(WString::tr("scatter plot 2"), this);
 
   WStandardItemModel *model = new WStandardItemModel(40, 2, this);
+  model->setItemPrototype(new NumericItem());
   model->setHeaderData(0, WString("X"));
   model->setHeaderData(1, WString("Y = sin(X)"));
 
@@ -280,9 +307,8 @@ ScatterPlotExample::ScatterPlotExample(WContainerWidget *parent):
   chart->axis(XAxis).setLocation(ZeroValue);
   chart->axis(YAxis).setLocation(ZeroValue);
 
-  // Provide space for the X and Y axis and title. 
-  chart->setPlotAreaPadding(80, Left);
-  chart->setPlotAreaPadding(40, Top | Bottom);
+  // Automatically layout chart (space for axes, legend, ...)
+  chart->setAutoLayoutEnabled();
 
   // Add the curves
   WDataSeries s(1, CurveSeries);
@@ -304,6 +330,7 @@ PieExample::PieExample(WContainerWidget *parent):
   new WText(WString::tr("pie chart"), this);
 
   WStandardItemModel *model = new WStandardItemModel(this);
+  model->setItemPrototype(new NumericItem());
   
   //headers
   model->insertColumns(model->columnCount(), 2);

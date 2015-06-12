@@ -10,10 +10,12 @@
 #include <Wt/WApplication>
 #include <Wt/WContainerWidget>
 #include <Wt/WEnvironment>
+#include <Wt/WInPlaceEdit>
 #include <Wt/WHBoxLayout>
 #include <Wt/WVBoxLayout>
 #include <Wt/WLabel>
 #include <Wt/WLineEdit>
+#include <Wt/WTemplate>
 #include <Wt/WText>
 #include <Wt/WTextArea>
 #include <Wt/WPushButton>
@@ -39,7 +41,6 @@ SimpleChatWidget::~SimpleChatWidget()
 {
   delete messageReceived_;
   logout();
-  disconnect();
 }
 
 void SimpleChatWidget::connect()
@@ -57,8 +58,6 @@ void SimpleChatWidget::disconnect()
 
 void SimpleChatWidget::letLogin()
 {
-  disconnect();
-
   clear();
 
   WVBoxLayout *vLayout = new WVBoxLayout();
@@ -100,6 +99,7 @@ void SimpleChatWidget::logout()
   if (loggedIn()) {
     loggedIn_ = false;
     server_.logout(user_);
+    disconnect();
 
     letLogin();
   }
@@ -236,8 +236,10 @@ bool SimpleChatWidget::startChat(const WString& user)
     messageEdit_->enterPressed().connect(this, &SimpleChatWidget::send);
     sendButton_->clicked().connect(clearInput_);
     messageEdit_->enterPressed().connect(clearInput_);
-    sendButton_->clicked().connect(messageEdit_, &WLineEdit::setFocus);
-    messageEdit_->enterPressed().connect(messageEdit_, &WLineEdit::setFocus);
+    sendButton_->clicked().connect((WWidget *)messageEdit_,
+				   &WWidget::setFocus);
+    messageEdit_->enterPressed().connect((WWidget *)messageEdit_,
+					 &WWidget::setFocus);
 
     // Prevent the enter from generating a new line, which is its default
     // action
@@ -245,11 +247,15 @@ bool SimpleChatWidget::startChat(const WString& user)
 
     logoutButton->clicked().connect(this, &SimpleChatWidget::logout);
 
-    WText *msg = new WText
-      ("<div><span class='chat-info'>You are joining as "
-       + escapeText(user_) + ".</span></div>",
-       messages_);
-    msg->setStyleClass("chat-msg");
+    WInPlaceEdit *nameEdit = new WInPlaceEdit();
+    nameEdit->addStyleClass("name-edit");
+    nameEdit->setButtonsEnabled(false);
+    nameEdit->setText(user_);
+    nameEdit->valueChanged().connect(this, &SimpleChatWidget::changeName);
+
+    WTemplate *joinMsg = new WTemplate(tr("join-msg.template"), messages_);
+    joinMsg->bindWidget("name", nameEdit);
+    joinMsg->setStyleClass("chat-msg");
 
     if (!userList_->parent()) {
       delete userList_;
@@ -269,6 +275,14 @@ bool SimpleChatWidget::startChat(const WString& user)
     return true;
   } else
     return false;
+}
+
+void SimpleChatWidget::changeName(const WString& name)
+{
+  if (!name.empty()) {
+    if (server_.changeName(user_, name))
+      user_ = name;
+  }
 }
 
 void SimpleChatWidget::send()
@@ -344,15 +358,21 @@ void SimpleChatWidget::processChatEvent(const ChatEvent& event)
     updateUsers();
   }
 
+  /*
+   * This is the server call: we (schedule to) propagate the updated UI to
+   * the client.
+   *
+   * This schedules an update and returns immediately
+   */
+  app->triggerUpdate();
+
   newMessage();
 
   /*
    * Anything else doesn't matter if we are not logged in.
    */
-  if (!loggedIn()) {
-    app->triggerUpdate();
+  if (!loggedIn())
     return;
-  }
 
   bool display = event.type() != ChatEvent::Message
     || !userList_
@@ -388,10 +408,4 @@ void SimpleChatWidget::processChatEvent(const ChatEvent& event)
     if (event.user() != user_ && messageReceived_)
       messageReceived_->play();
   }
-
-  /*
-   * This is the server push action: we propagate the updated UI to the client,
-   * (when the event was triggered by another user)
-   */
-  app->triggerUpdate();
 }

@@ -29,7 +29,7 @@
 #include "js/WTreeView.min.js"
 #endif
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && (_MSC_VER < 1800)
 namespace {
   double round(double x)
   {
@@ -432,6 +432,7 @@ void WTreeViewNode::updateGraphics(bool isLast, bool isEmpty)
   if (index_.parent() == view_->rootIndex() && !view_->rootIsDecorated()) {
     bindEmpty("expand");
     bindEmpty("no-expand");
+    bindEmpty("trunk-class");
     return;
   }
 
@@ -535,10 +536,9 @@ void WTreeViewNode::setCellWidget(int column, WWidget *newW)
     if (view_->rowHeaderCount())
       row = dynamic_cast<WContainerWidget *>(row->widget(0));
 
-    if (current)
-      row->removeWidget(current);
-
-    row->insertWidget(column - 1, newW);
+	delete current;
+    
+	row->insertWidget(column - 1, newW);
   }
 
   if (!WApplication::instance()->environment().ajax()) {
@@ -924,9 +924,14 @@ void WTreeViewNode::selfCheck()
 
 WTreeView::WTreeView(WContainerWidget *parent)
   : WAbstractItemView(parent),
+	skipNextMouseEvent_(false),
     renderedNodesAdded_(false),
     rootNode_(0),
+    rowHeightRule_(0),
+    rowWidthRule_(0),
+    rowContentsWidthRule_(0),
     borderColorRule_(0),
+    c0StyleRule_(0),
     rootIsDecorated_(true),
     collapsed_(this),
     expanded_(this),
@@ -958,18 +963,6 @@ WTreeView::WTreeView(WContainerWidget *parent)
 	(".Wt-treeview .Wt-tv-rowc", "position: relative;", CSS_RULES_NAME);
 
   setColumnBorder(white);
-
-  addCssRule("#" + id() + " .cwidth", "");
-
-  rowHeightRule_ = new WCssTemplateRule("#" + id() + " .rh", this);
-  app->styleSheet().addRule(rowHeightRule_);
-
-  rowWidthRule_ = new WCssTemplateRule("#" + id() + " .Wt-tv-row", this);
-  app->styleSheet().addRule(rowWidthRule_);
-
-  rowContentsWidthRule_ 
-    = new WCssTemplateRule("#" + id() +" .Wt-tv-rowc", this);
-  app->styleSheet().addRule(rowContentsWidthRule_);
 
   if (parent)
     parent->addWidget(this);
@@ -1016,22 +1009,6 @@ void WTreeView::setup()
     contentsContainer_->setStyleClass("cwidth");
     contentsContainer_->setOverflow(WContainerWidget::OverflowAuto);
     contentsContainer_->scrolled().connect(this, &WTreeView::onViewportChange);
-    contentsContainer_->scrolled().connect
-      ("function(obj, event) {"
-       /*
-	* obj.sb: workaround for Konqueror to prevent recursive
-	* invocation because reading scrollLeft triggers onscroll()
-	*/
-       """if (obj.sb) return;"
-       """obj.sb = true;"
-       "" + headerContainer_->jsRef() + ".scrollLeft=obj.scrollLeft;"
-       /* the following is a workaround for IE7 */
-       """var t = " + contents_->jsRef() + ".firstChild;"
-       """var h = " + headers_->jsRef() + ";"
-       """h.style.width = (t.offsetWidth - 1) + 'px';"
-       """h.style.width = t.offsetWidth + 'px';"
-       """obj.sb = false;"
-       "}");
     contentsContainer_->addWidget(contents_);
 
     layout->addWidget(headerContainer_);
@@ -1278,8 +1255,10 @@ void WTreeView::setRowHeight(const WLength& rowHeight)
 {
   WAbstractItemView::setRowHeight(rowHeight);
 
-  rowHeightRule_->templateWidget()->setHeight(rowHeight);
-  rowHeightRule_->templateWidget()->setLineHeight(rowHeight);
+  if (rowHeightRule_) {
+    rowHeightRule_->templateWidget()->setHeight(rowHeight);
+    rowHeightRule_->templateWidget()->setLineHeight(rowHeight);
+  }
 
   if (!WApplication::instance()->environment().ajax() && !height().isAuto())
     viewportHeight_ = static_cast<int>(contentsContainer_->height().toPixels()
@@ -1300,7 +1279,8 @@ void WTreeView::resize(const WLength& width, const WLength& height)
   WApplication *app = WApplication::instance();
   WLength w = app->environment().ajax() ? WLength::Auto : width;
 
-  contentsContainer_->setWidth(w);
+  if (app->environment().ajax())
+    contentsContainer_->setWidth(w);
   
   if (headerContainer_)
     headerContainer_->setWidth(w);
@@ -1310,11 +1290,11 @@ void WTreeView::resize(const WLength& width, const WLength& height)
       if (impl_->count() < 3)
 	impl_->addWidget(createPageNavigationBar());
 
-      double navigationBarHeight = 25;
+      double navigationBarHeight = 35;
       double headerHeight = this->headerHeight().toPixels();
 
       int h = (int)(height.toPixels() - navigationBarHeight - headerHeight);
-      contentsContainer_->resize(width, std::max(h, (int)rowHeight().value()));
+      contentsContainer_->setHeight(std::max(h, (int)rowHeight().value()));
 
       viewportHeight_
 	= static_cast<int>(contentsContainer_->height().toPixels()
@@ -1403,8 +1383,55 @@ void WTreeView::render(WFlags<RenderFlag> flags)
   if (flags & RenderFull) {
     defineJavaScript();
 
-    if (!itemEvent_.isConnected())
+    if (!itemEvent_.isConnected()) {
       itemEvent_.connect(this, &WTreeView::onItemEvent);
+
+      addCssRule("#" + id() + " .cwidth", "");
+
+      WApplication *app = WApplication::instance();
+
+      rowHeightRule_ = new WCssTemplateRule("#" + id() + " .rh", this);
+      app->styleSheet().addRule(rowHeightRule_);
+
+      rowHeightRule_->templateWidget()->setHeight(rowHeight());
+      rowHeightRule_->templateWidget()->setLineHeight(rowHeight());
+
+      rowWidthRule_ = new WCssTemplateRule("#" + id() + " .Wt-tv-row", this);
+      app->styleSheet().addRule(rowWidthRule_);
+
+      rowContentsWidthRule_ 
+	= new WCssTemplateRule("#" + id() +" .Wt-tv-rowc", this);
+      app->styleSheet().addRule(rowContentsWidthRule_);
+
+      if (app->environment().ajax()) {
+	contentsContainer_->scrolled().connect
+	  ("function(obj, event) {"
+	   /*
+	    * obj.sb: workaround for Konqueror to prevent recursive
+	    * invocation because reading scrollLeft triggers onscroll()
+	    */
+	   """if (obj.sb) return;"
+	   """obj.sb = true;"
+	   "" + headerContainer_->jsRef() + ".scrollLeft=obj.scrollLeft;"
+	   /* the following is a workaround for IE7 */
+	   """var t = " + contents_->jsRef() + ".firstChild;"
+	   """var h = " + headers_->jsRef() + ";"
+	   """h.style.width = (t.offsetWidth - 1) + 'px';"
+	   """h.style.width = t.offsetWidth + 'px';"
+	   """obj.sb = false;"
+	   "}");	
+      }
+
+      c0StyleRule_ = addCssRule("#" + id() + " li .none",
+				"width: auto;"
+				"text-overflow: ellipsis;"
+				"overflow: hidden");
+   
+      if (columns_.size() > 0) {
+	ColumnInfo& ci = columnInfo(0);
+	c0StyleRule_->setSelector("#" + id() + " li ." + ci.styleClass());
+      }
+    }
   }
 
   while (renderState_ != RenderOk) {
@@ -1430,13 +1457,20 @@ void WTreeView::render(WFlags<RenderFlag> flags)
     }
   }
 
-
   if (rowHeaderCount() && renderedNodesAdded_) {
     doJavaScript("{var s=" + scrollBarC_->jsRef() + ";"
 		 """if (s) {" + tieRowsScrollJS_.execJs("s") + "}"
 		 "}");
     renderedNodesAdded_ = false;
   }
+
+  // update the rowHeight (needed for scrolling fix)
+  WStringStream s;
+  s << "jQuery.data(" << jsRef()
+    << ", 'obj').setRowHeight("
+    <<  static_cast<int>(this->rowHeight().toPixels())
+    << ");";
+  doJavaScript(s.str());
 
   WAbstractItemView::render(flags);
 }
@@ -1479,10 +1513,9 @@ void WTreeView::enableAjax()
   setup();
   defineJavaScript();
 
-  rerenderHeader();
-  rerenderTree();
+  scheduleRerender(NeedRerender);
 
-  WCompositeWidget::enableAjax();
+  WAbstractItemView::enableAjax();
 }
 
 void WTreeView::rerenderTree()
@@ -1500,26 +1533,24 @@ void WTreeView::rerenderTree()
 
   if (WApplication::instance()->environment().ajax()) {
     connectObjJS(rootNode_->clicked(), "click");
-    rootNode_->clicked().preventPropagation();
+
     if (firstTime)
       connectObjJS(contentsContainer_->clicked(), "rootClick");
 
     if (editTriggers() & DoubleClicked || doubleClicked().isConnected()) {
       connectObjJS(rootNode_->doubleClicked(), "dblClick");
-      rootNode_->doubleClicked().preventPropagation();
       if (firstTime)
 	connectObjJS(contentsContainer_->doubleClicked(), "rootDblClick");
     }
 
     if (mouseWentDown().isConnected() || dragEnabled_) {
       connectObjJS(rootNode_->mouseWentDown(), "mouseDown");
-      rootNode_->mouseWentDown().preventPropagation();
       if (firstTime)
 	connectObjJS(contentsContainer_->mouseWentDown(), "rootMouseDown");
     }
 
     if (mouseWentUp().isConnected()) { 
-      rootNode_->mouseWentUp().preventPropagation();
+	  // Do not stop propagation to avoid mouseDrag event being emitted 
       connectObjJS(rootNode_->mouseWentUp(), "mouseUp");
       if (firstTime)
 	connectObjJS(contentsContainer_->mouseWentUp(), "rootMouseUp");
@@ -1596,14 +1627,28 @@ void WTreeView::onItemEvent(std::string nodeAndColumnId, std::string type,
     }
   }
 
+  /*
+   * Every mouse event is emitted twice (because we don't prevent the propagation
+   * because it will block the mouseWentUp event and therefore result in mouseDragged
+   * being emitted (See #3879)
+   */
+  if(skipNextMouseEvent_) {
+	skipNextMouseEvent_ = false; 
+	return;
+  }
+
   if (type == "clicked") {
     handleClick(index, event);
+	skipNextMouseEvent_ = true;
   } else if (type == "dblclicked") {
     handleDoubleClick(index, event);
+	skipNextMouseEvent_ = true;
   } else if (type == "mousedown") {
     mouseWentDown().emit(index, event);
+	skipNextMouseEvent_ = true;
   } else if (type == "mouseup") {
     mouseWentUp().emit(index, event);
+	skipNextMouseEvent_ = true;
   } else if (type == "drop") {
     WDropEvent e(WApplication::instance()->decodeObject(extra1), extra2, event);
     dropEvent(e, index);
@@ -1647,6 +1692,12 @@ void WTreeView::setCollapsed(const WModelIndex& index)
 {
   expandedSet_.erase(index);
 
+  /*
+   * Deselecting everything that is collapsed is not consistent with
+   * the allowed initial state. If the user wants this, he can implement
+   * this himself.
+   */
+#if 0
   bool selectionHasChanged = false;
   WModelIndexSet& selection = selectionModel()->selection_;
 
@@ -1668,6 +1719,7 @@ void WTreeView::setCollapsed(const WModelIndex& index)
 
   if (selectionHasChanged)
     selectionChanged().emit();
+#endif
 }
 
 void WTreeView::setExpanded(const WModelIndex& index, bool expanded)
@@ -1683,6 +1735,8 @@ void WTreeView::setExpanded(const WModelIndex& index, bool expanded)
       else
 	node->doCollapse();
     } else {
+      int height = subTreeHeight(index);
+
       if (expanded)
 	expandedSet_.insert(index);
       else
@@ -1691,7 +1745,6 @@ void WTreeView::setExpanded(const WModelIndex& index, bool expanded)
       if (w) {
 	RowSpacer *spacer = dynamic_cast<RowSpacer *>(w);
 
-	int height = subTreeHeight(index);
 	int diff = subTreeHeight(index) - height;
 
 	spacer->setRows(spacer->rows() + diff);
@@ -1927,7 +1980,7 @@ void WTreeView::modelRowsInserted(const WModelIndex& parent,
 
 	  int parentRowCount = model()->rowCount(parent);
 
-	  int nodesToAdd = std::min(count, maxRenderHeight);
+	  int nodesToAdd = std::max(0, std::min(count, maxRenderHeight));
 
 	  WTreeViewNode *first = 0;
 	  for (int i = 0; i < nodesToAdd; ++i) {
@@ -2103,7 +2156,8 @@ void WTreeView::modelRowsAboutToBeRemoved(const WModelIndex& parent,
 void WTreeView::modelRowsRemoved(const WModelIndex& parent,
 				 int start, int end)
 {
-  renderedRowsChanged(firstRemovedRow_, -removedHeight_);
+  if (renderState_ != NeedRerender && renderState_ != NeedRerenderData)
+    renderedRowsChanged(firstRemovedRow_, -removedHeight_);
 }
 
 void WTreeView::modelDataChanged(const WModelIndex& topLeft,
@@ -2709,11 +2763,8 @@ WAbstractItemView::ColumnInfo WTreeView::createColumnInfo(int column) const
     ci.width = WLength::Auto;
     ci.styleRule->templateWidget()->resize(WLength::Auto, WLength::Auto);
 
-    const_cast<WTreeView*>(this)->addCssRule("#" + this->id() + " li"
-					     " ." + ci.styleClass(),
-					     "width: auto;"
-					     "text-overflow: ellipsis;"
-					     "overflow: hidden");
+    if (c0StyleRule_)
+      c0StyleRule_->setSelector("#" + id() + " li ." + ci.styleClass());
   }
 
   return ci;
@@ -2782,15 +2833,22 @@ void WTreeView::scrollTo(const WModelIndex& index, ScrollHint hint)
 
     WStringStream s;
 
-    s << "jQuery.data(" << jsRef() << ", 'obj').scrollTo(-1, "
+    s << "setTimeout(function() { jQuery.data(" << jsRef()
+      << ", 'obj').scrollTo(-1, "
       << row << "," << static_cast<int>(rowHeight().toPixels())
-      << "," << (int)hint << ");";
+      << "," << (int)hint << ");});";
 
     doJavaScript(s.str());
   } else
     setCurrentPage(row / pageSize());
 }
 
+EventSignal<WScrollEvent>& WTreeView::scrolled(){
+  if (wApp->environment().ajax() && contentsContainer_ != 0)
+    return contentsContainer_->scrolled();
+
+  throw WException("Scrolled signal existes only with ajax.");
+}
 }
 
 #endif // DOXYGEN_ONLY

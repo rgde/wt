@@ -29,6 +29,7 @@ public:
   DefaultPagingBar(WAbstractItemView *view)
     : view_(view)
   {
+    view_->addStyleClass("Wt-itemview-paged");
     setStyleClass("Wt-pagingbar");
 
     firstButton_ = new WPushButton(tr("Wt.WAbstractItemView.PageBar.First"),
@@ -135,6 +136,8 @@ public:
       result |= ItemIsUserCheckable;
     if (headerFlags & HeaderIsTristate)
       result |= ItemIsTristate;
+    if (headerFlags & HeaderIsXHTMLText)
+      result |= ItemIsXHTMLText;
 
     return result;
   }
@@ -232,8 +235,10 @@ WAbstractItemView::WAbstractItemView(WContainerWidget *parent)
     columnResized_(this),
     nextColumnId_(1),
     alternatingRowColors_(false),
-    headerDblClicked_(this),
     headerClicked_(this),
+    headerDblClicked_(this),
+    headerMouseWentDown_(this),
+    headerMouseWentUp_(this),
     clicked_(this),
     doubleClicked_(this),
     mouseWentDown_(this),
@@ -269,8 +274,6 @@ WAbstractItemView::WAbstractItemView(WContainerWidget *parent)
 
   bindObjJS(resizeHandleMDownJS_, "resizeHandleMDown");
 
-  columnWidthChanged_.connect(this, &Self::updateColumnWidth);
-
   headerHeightRule_ = new WCssTemplateRule("#" + id() + " .headerrh", this);
   app->styleSheet().addRule(headerHeightRule_);
   setHeaderHeight(headerLineHeight_);
@@ -284,8 +287,23 @@ WAbstractItemView::~WAbstractItemView()
     delete columns_[i].styleRule;
 }
 
+void WAbstractItemView::setObjectName(const std::string& name)
+{
+  WCompositeWidget::setObjectName(name);
+
+  headerHeightRule_->setSelector("#" + id() + " .headerrh");
+
+  for (unsigned i = 0; i < columns_.size(); ++i) {
+    ColumnInfo& ci = columns_[i];
+    ci.styleRule->setSelector("#" + id() + " ." + ci.styleClass());
+  }
+}
+
 void WAbstractItemView::setModel(WAbstractItemModel *model)
 {
+  if (!columnWidthChanged_.isConnected())
+    columnWidthChanged_.connect(this, &WAbstractItemView::updateColumnWidth);
+
   bool isReset = false;
   if (model_) {
     /* disconnect slots from previous model */
@@ -525,6 +543,11 @@ void WAbstractItemView::setItemDelegate(WAbstractItemDelegate *delegate)
   itemDelegate_ = delegate;
   itemDelegate_->closeEditor()
     .connect(this, &WAbstractItemView::closeEditorWidget);
+
+#ifndef WT_TARGET_JAVA
+  if (!delegate->parent())
+    WObject::addChild(delegate);
+#endif // WT_TARGET_JAVA
 }
 
 void WAbstractItemView::setItemDelegateForColumn(int column,
@@ -687,6 +710,16 @@ void WAbstractItemView::handleHeaderDblClicked(int columnid, WMouseEvent event)
   headerDblClicked_.emit(columnById(columnid), event);
 }
 
+void WAbstractItemView::handleHeaderMouseDown(int columnid, WMouseEvent event)
+{
+  headerMouseWentDown_.emit(columnById(columnid), event);
+}
+
+void WAbstractItemView::handleHeaderMouseUp(int columnid, WMouseEvent event)
+{
+  headerMouseWentUp_.emit(columnById(columnid), event);
+}
+
 void WAbstractItemView::toggleSortColumn(int columnid)
 {
   int column = columnById(columnid);
@@ -806,11 +839,21 @@ bool WAbstractItemView::internalSelect(const WModelIndex& index,
 
   if (option == ToggleSelect)
     option = isSelected(index) ? Deselect : Select;
-  else if (option == ClearAndSelect) {
+
+  if (selectionMode() == SingleSelection && option == Select)
+    option = ClearAndSelect;
+
+  if ((option == ClearAndSelect || option == Select) &&
+      selectionModel()->selection_.size() == 1 &&
+      isSelected(index))
+    return false;
+  else if (option == Deselect && !isSelected(index))
+    return false;
+
+  if (option == ClearAndSelect) {
     clearSelection();
     option = Select;
-  } else if (selectionMode() == SingleSelection && option == Select)
-    clearSelection();
+  }
 
   /*
    * now option is either Select or Deselect and we only need to do
@@ -819,8 +862,7 @@ bool WAbstractItemView::internalSelect(const WModelIndex& index,
   if (option == Select)
     selectionModel()->selection_.insert(index);
   else
-    if (!selectionModel()->selection_.erase(index))
-      return false;
+    selectionModel()->selection_.erase(index);
 
   return true;
 }
@@ -904,16 +946,18 @@ void WAbstractItemView::selectionHandleClick(const WModelIndex& index,
       extendSelection(index);
     else {
       if (!(modifiers & (ControlModifier | MetaModifier))) {
-	//if (isSelected(index)) -> strange MacOS X behavor
-	//  return;
-	//else {
 	select(index, ClearAndSelect);
-	//}
       } else
 	select(index, ToggleSelect);
     }
-  } else
-    select(index, Select);
+  } else {
+    if ((modifiers & (ControlModifier | MetaModifier)) &&
+	isSelected(index)) {
+      clearSelection();
+      selectionChanged_.emit();
+    } else
+      select(index, Select);
+  }
 }
 
 WModelIndexSet WAbstractItemView::selectedIndexes() const
@@ -1007,9 +1051,6 @@ WWidget *WAbstractItemView::createHeaderWidget(int column)
     sortIcon->setObjectName("sort");
     sortIcon->setInline(false);
     sortIcon->setStyleClass("Wt-tv-sh Wt-tv-sh-none");
-    sortIcon->clicked().connect(
-          boost::bind(&WAbstractItemView::handleHeaderClicked,
-                      this, info.id, _1));
     if (currentSortColumn_ == column)
       sortIcon->setStyleClass(info.sortOrder == AscendingOrder
 			      ? "Wt-tv-sh Wt-tv-sh-up"
@@ -1036,17 +1077,6 @@ WWidget *WAbstractItemView::createHeaderWidget(int column)
   i->setInline(false);
   i->addStyleClass("Wt-label");
   contents->addWidget(i);
-
-  // FIXME: we probably want this as an API option ?
-  WInteractWidget *ww = dynamic_cast<WInteractWidget *>(i);
-  if (ww){
-    ww->clicked().connect(
-          boost::bind(&WAbstractItemView::handleHeaderClicked, this,
-                      info.id, _1));
-    ww->doubleClicked().connect(
-          boost::bind(&WAbstractItemView::handleHeaderDblClicked,
-                      this, info.id, _1));
-  }
 
   int headerLevel = model_ ? this->headerLevel(column) : 0;
 
@@ -1117,6 +1147,19 @@ WWidget *WAbstractItemView::createHeaderWidget(int column)
 
   if (extraW)
     main->addWidget(extraW);
+
+  main->clicked().connect(
+	  boost::bind(&WAbstractItemView::handleHeaderClicked, this,
+                      info.id, _1));
+  main->mouseWentDown().connect(
+          boost::bind(&WAbstractItemView::handleHeaderMouseDown, this,
+                      info.id, _1));
+  main->mouseWentUp().connect(
+          boost::bind(&WAbstractItemView::handleHeaderMouseUp, this,
+                      info.id, _1));
+  main->doubleClicked().connect(
+          boost::bind(&WAbstractItemView::handleHeaderDblClicked,
+                      this, info.id, _1));
 
   WT_USTRING sc = asString(index.data(StyleClassRole));
   if (!sc.empty())
@@ -1619,4 +1662,23 @@ boost::any WAbstractItemView::editState(const WModelIndex& index) const
     return boost::any();
 }
 
+EventSignal<WKeyEvent>& WAbstractItemView::keyWentDown()
+{
+  impl_->setCanReceiveFocus(true);
+  return impl_->keyWentDown();
 }
+
+EventSignal<WKeyEvent>& WAbstractItemView::keyPressed()
+{
+  impl_->setCanReceiveFocus(true);
+  return impl_->keyPressed();
+}
+
+EventSignal<WKeyEvent>& WAbstractItemView::keyWentUp()
+{
+  impl_->setCanReceiveFocus(true);
+  return impl_->keyWentUp();
+}
+
+}
+

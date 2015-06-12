@@ -102,6 +102,16 @@ public:
   virtual WModelIndex mapFromSource(const WModelIndex& sourceIndex) const;
   virtual WModelIndex mapToSource(const WModelIndex& proxyIndex) const;
 
+  /*! \brief Sets the source model.
+   *
+   * The source model provides the actual data for the proxy
+   * model.
+   *
+   * Ownership of the source model is <i>not</i> transferred.
+   *
+   * All signals of the source model are forwarded to the
+   * proxy model.
+   */
   virtual void setSourceModel(WAbstractItemModel *sourceModel);
 
   /*! \brief Specify the column on which the filtering is applied.
@@ -214,6 +224,13 @@ public:
    */
   bool dynamicSortFilter() const { return dynamic_; }
 
+  /*! \brief Invalidates the current filter.
+   *
+   * This refilters and resorts the model, and is useful only if you
+   * have reimplemented filterAcceptRow() and/or lessThan()
+   */
+  void invalidate();
+
   virtual int columnCount(const WModelIndex& parent = WModelIndex()) const;
   virtual int rowCount(const WModelIndex& parent = WModelIndex()) const;
 
@@ -270,6 +287,7 @@ protected:
   virtual bool filterAcceptRow(int sourceRow, const WModelIndex& sourceParent)
     const;
 
+#ifndef WT_TARGET_JAVA
   /*! \brief Compares two indexes.
    *
    * The default implementation uses sortRole() and an ordering using
@@ -281,6 +299,20 @@ protected:
    */
   virtual bool lessThan(const WModelIndex& lhs, const WModelIndex& rhs)
     const;
+#endif
+
+#ifdef WT_TARGET_JAVA
+  /*! \brief Compares two indexes.
+   *
+   * The default implementation uses sortRole() and an ordering using
+   * the operator< when the data is of the same type or compares
+   * lexicographically otherwise.
+   *
+   * You may want to reimplement this method to provide specialized
+   * sorting.
+   */
+  virtual int compare(const WModelIndex& lhs, const WModelIndex& rhs) const;
+#endif
 
 private:
   /*
@@ -355,7 +387,9 @@ private:
   void rebuildSourceRowMap(Item *item) const;
 
   int mappedInsertionPoint(int sourceRow, Item *item) const;
+#ifndef WT_TARGET_JAVA
   int compare(const WModelIndex& lhs, const WModelIndex& rhs) const;
+#endif
 };
 
 }

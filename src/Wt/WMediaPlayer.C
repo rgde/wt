@@ -303,7 +303,15 @@ std::string WMediaPlayer::jsPlayerRef() const
 
 void WMediaPlayer::play()
 {
-  playerDo("play");
+  if (isRendered()) {
+    /*
+     * play is being delayed so that other changes (e.g. addSource() are
+     * reflected first, see #2819
+     */
+    doJavaScript("setTimeout(function(){" + jsPlayerRef() 
+		 + ".jPlayer('play'); }, 0);");
+  } else
+    playerDo("play");
 }
 
 void WMediaPlayer::pause()
@@ -410,6 +418,15 @@ void WMediaPlayer::playerDoRaw(const std::string& jqueryMethod)
     doJavaScript(ss.str());
   else 
     initialJs_ += ss.str();
+}
+
+
+void WMediaPlayer::refresh()
+{
+  WCompositeWidget::refresh();
+
+  // rerender so that the jPlayer constructor is executed on the new HTML
+  render(RenderFull);
 }
 
 void WMediaPlayer::render(WFlags<RenderFlag> flags)

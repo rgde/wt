@@ -232,7 +232,6 @@ namespace Wt {
     class WAbstractChart;
     class WAxis;
     class WCartesianChart;
-    class WChart2DRenderer;
     class WChartPalette;
     class WDataSeries;
     class WPieChart;
@@ -290,6 +289,18 @@ namespace Wt {
     class Client;
     class Mailbox;
     class Message;
+  }
+
+  namespace Payment {
+    class Address;
+    class Customer;
+    class Money;
+    class Order;
+    class OrderItem;
+    class PayPalExpressCheckout;
+    class PayPalService;
+    class Result;
+    class Approval;
   }
 
   namespace Render {
@@ -814,7 +825,17 @@ enum Key {
   Key_W = 'W',         //!< 'W' key
   Key_X = 'X',         //!< 'X' key
   Key_Y = 'Y',         //!< 'Y' key
-  Key_Z = 'Z'          //!< 'Z' key
+  Key_Z = 'Z',         //!< 'Z' key
+  Key_1 = '1',         //!< '1' key
+  Key_2 = '2',         //!< '2' key
+  Key_3 = '3',         //!< '3' key
+  Key_4 = '4',         //!< '4' key
+  Key_5 = '5',         //!< '5' key
+  Key_6 = '6',         //!< '6' key
+  Key_7 = '7',         //!< '7' key
+  Key_8 = '8',         //!< '8' key
+  Key_9 = '9',         //!< '9' key
+  Key_0 = '0',         //!< '0' key
 };
 
 /*! \brief Enumeration for the check state of a check box.
@@ -971,7 +992,12 @@ enum HeaderFlag {
    *
    * When set, Wt::CheckStateRole data is of type Wt::CheckState
    */
-  HeaderIsTristate = 0x10
+  HeaderIsTristate = 0x10,
+
+  /*! \brief Flag that indicates that the item text (DisplayRole, ToolTipRole)
+   * is HTML
+   */
+  HeaderIsXHTMLText = 0x40
 };
 
 W_DECLARE_OPERATORS_FOR_FLAGS(HeaderFlag)
@@ -991,9 +1017,10 @@ enum MetaHeaderType {
  * \sa WEvent::eventType()
  */
 enum EventType {
-  OtherEvent, //!< An event which is not user- or timer-initiated
-  UserEvent,  //!< A user-initiated event
-  TimerEvent  //!< A timer-initiated event
+  OtherEvent,   //!< An event which is not user- or timer-initiated
+  UserEvent,    //!< A user-initiated event
+  TimerEvent,   //!< A timer-initiated event
+  ResourceEvent //!< An event which is a resource request
 };
 
 /*! \brief An enumeration describing a layout direction.
@@ -1001,6 +1028,17 @@ enum EventType {
 enum LayoutDirection {
   LeftToRight, //!< Left-to-Right (Western and other languages)
   RightToLeft  //!< Right-to-Left (Many Middle Eastern and Arabic languages)
+};
+
+enum WebWriteEvent {
+  WriteCompleted, // Write was successful
+  WriteError      // Write failed
+};
+
+enum WebReadEvent {
+  ReadError,   // Read failed
+  ReadMessage, // Read a WebSocket message
+  ReadPing     // Read Ping message
 };
 
 }

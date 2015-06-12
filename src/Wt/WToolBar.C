@@ -22,8 +22,9 @@ WToolBar::WToolBar(WContainerWidget *parent)
   setStyleClass("btn-group");
 }
 
-void WToolBar::setOrientation(Orientation orientation){
-  if(orientation == Vertical)
+void WToolBar::setOrientation(Orientation orientation)
+{
+  if (orientation == Vertical)
     addStyleClass("btn-group-vertical");
   else
     removeStyleClass("btn-group-vertical");
@@ -42,12 +43,40 @@ void WToolBar::addButton(WPushButton *button, AlignmentFlag alignmentFlag)
   }
 }
 
-void WToolBar::addButton(WSplitButton *button)
+void WToolBar::addButton(WSplitButton *button, AlignmentFlag alignmentFlag)
 {
   setCompact(false);
   lastGroup_ = 0;
-
+  if(alignmentFlag == AlignRight)
+    button->setAttributeValue("style", "float:right;");
   impl_->addWidget(button);
+}
+
+void WToolBar::addWidget(WWidget *widget, AlignmentFlag alignmentFlag)
+{
+  setCompact(false);
+  lastGroup_ = 0;
+  if(alignmentFlag == AlignRight)
+    widget->setAttributeValue("style", "float:right;");
+  impl_->addWidget(widget);
+}
+
+void WToolBar::removeWidget(WWidget *widget)
+{
+  WWidget *p = widget->parent();
+  if (p == impl_)
+    impl_->removeWidget(widget);
+  else {
+    int i = impl_->indexOf(p);
+    if (i >= 0) {
+      WContainerWidget *cw = dynamic_cast<WContainerWidget *>(p);
+      if (cw) {
+	cw->removeWidget(widget);
+	if (cw->count() == 0)
+	  delete cw;
+      }
+    }
+  }
 }
 
 void WToolBar::addSeparator()
@@ -67,15 +96,17 @@ void WToolBar::setCompact(bool compact)
       setStyleClass("btn-group");
     } else {
       setStyleClass("btn-toolbar");
-      WContainerWidget *group = new WContainerWidget();
-      group->setStyleClass("btn-group");
-      while (impl_->count() > 0) {
-	WWidget *w = impl_->widget(0);
-	impl_->removeWidget(w);
-	group->addWidget(w);
+      if (impl_->count() > 0) {
+	WContainerWidget *group = new WContainerWidget();
+	group->setStyleClass("btn-group");
+	while (impl_->count() > 0) {
+	  WWidget *w = impl_->widget(0);
+	  impl_->removeWidget(w);
+	  group->addWidget(w);
+	}
+	impl_->addWidget(group);
+	lastGroup_ = group;
       }
-      impl_->addWidget(group);
-      lastGroup_ = group;
     }
   }
 }

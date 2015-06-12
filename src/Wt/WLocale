@@ -19,11 +19,15 @@ namespace Wt {
  *
  * This class provides localization support for an application.
  *
- * It's functionality is currently limited to date and number
- * formatting, and the formatting properties need to be configured
- * here, we plan to leverage standard C++ locale functionality to
- * obtain these configurations. The locale also provides client-side
- * support, and thus cannot solely rely on C++'s locale support.
+ * It can be used to determine the formatting of dates and numbers,
+ * and by WLocalDateTime to determine the time zone.
+ *
+ * Note that only the name() parameter is automatically retrieved
+ * from the browser, if possible, and message resources are deduced
+ * based on that. All other parameters have to be configured.
+ *
+ * We plan to leverage the C++ std::locale to deduce these parameters,
+ * but this is currently not implemented.
  *
  * \sa WApplication::locale()
  */
@@ -42,16 +46,16 @@ public:
    */
   WLocale(const Wt::WLocale& locale);
 
-  /* \brief Creates a locale by name.
+  /*! \brief Creates a locale by name.
    *
-   * The locale name is a string such as "en" (for English) or "en_UK"
+   * The locale name is a string such as "en" (for English) or "en_GB"
    * (for UK English).
    */
   WLocale(const std::string& locale);
 
-  /* \brief Creates a locale by name.
+  /*! \brief Creates a locale by name.
    *
-   * The locale name is a string such as "en" (for English) or "en_UK"
+   * The locale name is a string such as "en" (for English) or "en_GB"
    * (for UK English).
    */
   WLocale(const char *locale);
@@ -136,6 +140,21 @@ public:
    */
   WT_USTRING dateFormat() const { return dateFormat_; }
 
+  /*! \brief Sets the time format.
+   *
+   *  Sets the default format for time entry, eg. as used in
+   *  WTimeValidator. See WTime::toString() for the supported syntax.
+   *
+   *  The default time format is "HH:mm:ss".
+   */
+  void setTimeFormat(const WT_USTRING &format);
+
+  /*! \brief Returns the time format.
+   *
+   * Returns the time format.
+   */
+  WT_USTRING timeFormat() const { return timeFormat_; }
+
   /*! \brief Sets the date/time format.
    *
    * Sets the format for a localized time stamp (using
@@ -161,7 +180,7 @@ public:
 
   /*! \brief Casts to the locale string (for pre-3.3.0 compatibility).
    *
-   * \deprecated Use name() instead. 
+   * \deprecated Use name() instead.
    */
   operator std::string() const { return name(); }
 
@@ -204,18 +223,23 @@ public:
    */
   WT_USTRING toString(double value) const;
 
+  /*! \brief Formats a floating point number with given precision.
+   */
+  WT_USTRING toFixedString(double value, int precision) const;
+
   boost::local_time::time_zone_ptr time_zone_ptr() const { return time_zone_; }
 
 private:
   std::string name_;
   WT_UCHAR decimalPoint_, groupSeparator_;
-  WT_USTRING dateFormat_, dateTimeFormat_;
+  WT_USTRING dateFormat_, timeFormat_, dateTimeFormat_;
 
   boost::local_time::time_zone_ptr time_zone_;
 
   bool isDefaultNumberLocale() const;
 
   WT_USTRING integerToString(const std::string& v) const;
+  WT_USTRING doubleToString(std::string v) const;
   std::string addGrouping(const std::string& v, unsigned decimalPoint) const;
 };
 
